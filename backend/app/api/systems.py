@@ -67,6 +67,57 @@ systems_db: Dict[str, Dict] = {}
 data_sources_db: Dict[str, Dict] = {}
 
 
+def init_demo_systems():
+    """Initialize demo systems for demonstration purposes."""
+    demo_systems = [
+        {
+            "id": "1",
+            "name": "Fleet Vehicle Alpha",
+            "system_type": "vehicle",
+            "serial_number": "VH-2024-001",
+            "model": "EV-X1",
+            "metadata": {"manufacturer": "UAIE Demo", "year": 2024},
+            "status": "anomaly_detected",
+            "health_score": 87.5,
+            "discovered_schema": {},
+            "confirmed_fields": {},
+            "created_at": "2024-01-01T00:00:00Z",
+        },
+        {
+            "id": "2",
+            "name": "Robot Arm Unit 7",
+            "system_type": "robot",
+            "serial_number": "RA-2024-007",
+            "model": "ARM-6DOF",
+            "metadata": {"manufacturer": "UAIE Demo", "year": 2024},
+            "status": "active",
+            "health_score": 94.2,
+            "discovered_schema": {},
+            "confirmed_fields": {},
+            "created_at": "2024-01-02T00:00:00Z",
+        },
+        {
+            "id": "3",
+            "name": "Medical Scanner MRI-3",
+            "system_type": "medical_device",
+            "serial_number": "MRI-2024-003",
+            "model": "MRI-X500",
+            "metadata": {"manufacturer": "UAIE Demo", "year": 2024},
+            "status": "active",
+            "health_score": 99.1,
+            "discovered_schema": {},
+            "confirmed_fields": {},
+            "created_at": "2024-01-03T00:00:00Z",
+        },
+    ]
+    for system in demo_systems:
+        systems_db[system["id"]] = system
+
+
+# Initialize demo systems on module load
+init_demo_systems()
+
+
 @router.post("/", response_model=SystemResponse)
 async def create_system(system: SystemCreate):
     """Create a new monitored system."""
