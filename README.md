@@ -55,6 +55,33 @@ docker-compose up
 
 ---
 
+## Windows Quick Start (One-Click Scripts)
+
+For Windows users, we provide easy-to-use batch scripts in the `scripts/` folder:
+
+| Script | Description |
+|--------|-------------|
+| `START.bat` | Main menu - choose what to do |
+| `install.bat` | Install all dependencies (Python + Node.js packages) |
+| `run.bat` | Run the application locally (opens Backend + Frontend) |
+| `run-docker.bat` | Run with Docker (recommended) |
+| `update.bat` | Pull latest updates from Git |
+| `stop-docker.bat` | Stop Docker containers |
+
+### Usage
+
+1. Clone and switch to branch (first time only):
+   ```cmd
+   git clone https://github.com/royrotem/Rising-Star.git
+   cd Rising-Star
+   git fetch origin
+   git checkout claude/refine-saas-description-3Bzwc
+   ```
+
+2. Double-click `scripts\START.bat` and choose an option!
+
+---
+
 ## Prerequisites
 
 ### Option 1: Docker (Recommended)
