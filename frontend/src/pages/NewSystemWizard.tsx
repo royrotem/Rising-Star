@@ -35,18 +35,18 @@ interface SystemFormData {
 interface DiscoveredField {
   name: string;
   inferred_type: string;
-  physical_unit: string | null;
-  inferred_meaning: string;
+  physical_unit?: string | null;
+  inferred_meaning?: string;
   confidence: number;
-  sample_values: unknown[];
+  sample_values?: unknown[];
 }
 
 interface ConfirmationRequest {
-  field_name: string;
+  field_name?: string;
   question: string;
-  inferred_unit: string | null;
-  inferred_type: string;
-  sample_values: unknown[];
+  inferred_unit?: string | null;
+  inferred_type?: string;
+  sample_values?: unknown[];
 }
 
 // System type options
@@ -484,7 +484,7 @@ export default function NewSystemWizard() {
                         <Database className="w-5 h-5 text-slate-400" />
                         <div>
                           <p className="font-medium text-white font-mono">{field.name}</p>
-                          <p className="text-sm text-slate-400">{field.inferred_meaning}</p>
+                          <p className="text-sm text-slate-400">{field.inferred_meaning || 'Unknown'}</p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -509,7 +509,7 @@ export default function NewSystemWizard() {
                     <div className="mt-3 pt-3 border-t border-slate-700">
                       <p className="text-xs text-slate-500 mb-1">Sample values:</p>
                       <p className="text-sm text-slate-300 font-mono">
-                        {field.sample_values.slice(0, 3).join(', ')}
+                        {(field.sample_values || []).slice(0, 3).join(', ')}
                       </p>
                     </div>
                   </div>
@@ -535,69 +535,72 @@ export default function NewSystemWizard() {
             </div>
 
             <div className="space-y-4">
-              {confirmationRequests.map((req) => (
-                <div
-                  key={req.field_name}
-                  className={clsx(
-                    'p-5 rounded-lg border-2 transition-all',
-                    confirmations[req.field_name]?.confirmed === true
-                      ? 'border-green-500/50 bg-green-500/5'
-                      : confirmations[req.field_name]?.confirmed === false
-                      ? 'border-orange-500/50 bg-orange-500/5'
-                      : 'border-slate-700 bg-slate-800/50'
-                  )}
-                >
-                  <p className="text-white mb-4">{req.question}</p>
+              {confirmationRequests.map((req, idx) => {
+                const fieldName = req.field_name || `field_${idx}`;
+                return (
+                  <div
+                    key={fieldName}
+                    className={clsx(
+                      'p-5 rounded-lg border-2 transition-all',
+                      confirmations[fieldName]?.confirmed === true
+                        ? 'border-green-500/50 bg-green-500/5'
+                        : confirmations[fieldName]?.confirmed === false
+                        ? 'border-orange-500/50 bg-orange-500/5'
+                        : 'border-slate-700 bg-slate-800/50'
+                    )}
+                  >
+                    <p className="text-white mb-4">{req.question}</p>
 
-                  <div className="bg-slate-900 rounded-lg p-3 mb-4">
-                    <div className="flex items-center gap-4 text-sm">
-                      <div>
-                        <span className="text-slate-500">Type: </span>
-                        <span className="text-slate-300">{req.inferred_type}</span>
-                      </div>
-                      {req.inferred_unit && (
+                    <div className="bg-slate-900 rounded-lg p-3 mb-4">
+                      <div className="flex items-center gap-4 text-sm">
                         <div>
-                          <span className="text-slate-500">Unit: </span>
-                          <span className="text-primary-300">{req.inferred_unit}</span>
+                          <span className="text-slate-500">Type: </span>
+                          <span className="text-slate-300">{req.inferred_type || 'unknown'}</span>
                         </div>
-                      )}
+                        {req.inferred_unit && (
+                          <div>
+                            <span className="text-slate-500">Unit: </span>
+                            <span className="text-primary-300">{req.inferred_unit}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2">
+                        <span className="text-slate-500 text-sm">Samples: </span>
+                        <span className="text-slate-300 font-mono text-sm">
+                          {(req.sample_values || []).slice(0, 3).join(', ')}
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-2">
-                      <span className="text-slate-500 text-sm">Samples: </span>
-                      <span className="text-slate-300 font-mono text-sm">
-                        {req.sample_values.slice(0, 3).join(', ')}
-                      </span>
-                    </div>
-                  </div>
 
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => handleConfirmation(req.field_name, true)}
-                      className={clsx(
-                        'flex-1 px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
-                        confirmations[req.field_name]?.confirmed === true
-                          ? 'bg-green-500 text-white'
-                          : 'bg-slate-700 text-white hover:bg-slate-600'
-                      )}
-                    >
-                      <CheckCircle className="w-5 h-5" />
-                      Yes, Correct
-                    </button>
-                    <button
-                      onClick={() => handleConfirmation(req.field_name, false)}
-                      className={clsx(
-                        'flex-1 px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
-                        confirmations[req.field_name]?.confirmed === false
-                          ? 'bg-orange-500 text-white'
-                          : 'bg-slate-700 text-white hover:bg-slate-600'
-                      )}
-                    >
-                      <XCircle className="w-5 h-5" />
-                      Needs Correction
-                    </button>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleConfirmation(fieldName, true)}
+                        className={clsx(
+                          'flex-1 px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
+                          confirmations[fieldName]?.confirmed === true
+                            ? 'bg-green-500 text-white'
+                            : 'bg-slate-700 text-white hover:bg-slate-600'
+                        )}
+                      >
+                        <CheckCircle className="w-5 h-5" />
+                        Yes, Correct
+                      </button>
+                      <button
+                        onClick={() => handleConfirmation(fieldName, false)}
+                        className={clsx(
+                          'flex-1 px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
+                          confirmations[fieldName]?.confirmed === false
+                            ? 'bg-orange-500 text-white'
+                            : 'bg-slate-700 text-white hover:bg-slate-600'
+                        )}
+                      >
+                        <XCircle className="w-5 h-5" />
+                        Needs Correction
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="text-center text-sm text-slate-400">
