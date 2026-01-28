@@ -38,6 +38,10 @@ The UAIE is a domain-agnostic SaaS platform that deploys a workforce of AI Agent
 git clone https://github.com/royrotem/Rising-Star.git
 cd Rising-Star
 
+# Switch to the development branch (contains all the code)
+git fetch origin
+git checkout claude/refine-saas-description-3Bzwc
+
 # Run with Docker (recommended)
 docker-compose up
 
@@ -46,6 +50,8 @@ docker-compose up
 # Backend API: http://localhost:8000
 # API Docs: http://localhost:8000/docs
 ```
+
+> **Note:** The main branch contains only the README. All source code is on the `claude/refine-saas-description-3Bzwc` branch.
 
 ---
 
@@ -90,7 +96,16 @@ docker-compose up
 cd %USERPROFILE%\Documents
 git clone https://github.com/royrotem/Rising-Star.git
 cd Rising-Star
+
+# Switch to the development branch
+git fetch origin
+git checkout claude/refine-saas-description-3Bzwc
+
+# Verify files are present
+dir
 ```
+
+> You should see: `backend/`, `frontend/`, `docker-compose.yml`, etc.
 
 #### Step 3A: Run with Docker (Recommended)
 
@@ -187,7 +202,16 @@ git --version
 cd ~/Documents
 git clone https://github.com/royrotem/Rising-Star.git
 cd Rising-Star
+
+# Switch to the development branch
+git fetch origin
+git checkout claude/refine-saas-description-3Bzwc
+
+# Verify files are present
+ls -la
 ```
+
+> You should see: `backend/`, `frontend/`, `docker-compose.yml`, etc.
 
 #### Step 4A: Run with Docker (Recommended)
 
