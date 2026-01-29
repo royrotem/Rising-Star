@@ -133,11 +133,32 @@ class IngestionService:
         content = file_content.read().decode('utf-8')
         data = json.loads(content)
         if isinstance(data, list):
-            records = data
+            records = [self._flatten_dict(r) if isinstance(r, dict) else {"value": r} for r in data]
         else:
-            records = [data]
+            records = [self._flatten_dict(data) if isinstance(data, dict) else {"value": data}]
         schema = self._infer_json_schema(records[0]) if records else {}
         return records, schema
+
+    def _flatten_dict(self, d: Dict, parent_key: str = '', sep: str = '_') -> Dict:
+        """Flatten a nested dictionary."""
+        items = []
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(self._flatten_dict(v, new_key, sep=sep).items())
+            elif isinstance(v, list):
+                # Convert list to string representation for simplicity
+                if v and isinstance(v[0], dict):
+                    # If list of dicts, just store length and first item summary
+                    items.append((f"{new_key}_count", len(v)))
+                    if v:
+                        first_item = self._flatten_dict(v[0], f"{new_key}_0", sep=sep)
+                        items.extend(first_item.items())
+                else:
+                    items.append((new_key, str(v) if len(str(v)) < 200 else f"[{len(v)} items]"))
+            else:
+                items.append((new_key, v))
+        return dict(items)
 
     async def _parse_jsonl(self, file_content: BinaryIO) -> tuple[List[Dict], Dict]:
         """Parse JSON Lines file."""
@@ -225,14 +246,30 @@ class IngestionService:
         if not records:
             return []
 
-        df = pd.DataFrame(records)
+        # Filter out columns that contain unhashable types (dicts, lists)
+        clean_records = []
+        for record in records:
+            clean_record = {}
+            for k, v in record.items():
+                if isinstance(v, (dict, list)):
+                    clean_record[k] = str(v)[:200] if v else None
+                else:
+                    clean_record[k] = v
+            clean_records.append(clean_record)
+
+        df = pd.DataFrame(clean_records)
         discovered = []
 
         for column in df.columns:
+            try:
+                sample_values = df[column].dropna().head(5).tolist()
+            except Exception:
+                sample_values = []
+
             field = DiscoveredField(
                 name=column,
                 inferred_type=self._infer_field_type(df[column]),
-                sample_values=df[column].dropna().head(5).tolist()
+                sample_values=sample_values
             )
 
             # Infer physical unit from field name

@@ -191,6 +191,9 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
     """
     Generate AI recommendations for system configuration based on analyzed data.
     """
+    # Calculate total records first
+    total_records = sum(s.get("record_count", 0) for s in file_summaries)
+
     # Collect all field names for analysis
     all_fields = [f.get("name", "").lower() for f in discovered_fields]
     all_field_types = [f.get("inferred_type", "") for f in discovered_fields]
@@ -268,8 +271,6 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
         reasoning_parts.append(f"Detected physical units: {', '.join(set(all_units)[:5])}")
 
     reasoning = ". ".join(reasoning_parts) if reasoning_parts else "Based on general data structure analysis."
-
-    total_records = sum(s.get("record_count", 0) for s in file_summaries)
 
     return {
         "suggested_name": suggested_name,
