@@ -16,6 +16,7 @@ from ..services.anomaly_detection import AnomalyDetectionService
 from ..services.root_cause import RootCauseService
 from ..services.data_store import data_store
 from ..services.analysis_engine import analysis_engine
+from ..services.ai_agents import orchestrator as ai_orchestrator
 
 
 router = APIRouter(prefix="/systems", tags=["Systems"])
@@ -742,17 +743,19 @@ async def analyze_system(
     records = data_store.get_ingested_records(system_id, limit=50000)
     sources = data_store.get_data_sources(system_id)
     discovered_schema = system.get("discovered_schema", [])
+    system_type = system.get("system_type", "industrial")
+    system_name = system.get("name", "Unknown System")
 
-    # Run advanced analysis
+    # Run rule-based analysis engine
     result = await analysis_engine.analyze(
         system_id=system_id,
-        system_type=system.get("system_type", "industrial"),
+        system_type=system_type,
         records=records,
         discovered_schema=discovered_schema,
         metadata=system.get("metadata", {}),
     )
 
-    # Convert anomalies to dict format for JSON serialization
+    # Convert rule-based anomalies to dict format
     anomalies = []
     for a in result.anomalies:
         anomalies.append({
@@ -769,7 +772,68 @@ async def analyze_system(
             "confidence": a.confidence,
             "value": a.value,
             "expected_range": a.expected_range,
+            "contributing_agents": ["Rule Engine"],
+            "web_references": [],
+            "agent_perspectives": [],
         })
+
+    # === Run AI Multi-Agent Analysis ===
+    ai_result = None
+    agent_statuses = []
+    try:
+        # Build data profile for AI agents
+        import pandas as pd
+        data_profile = _build_data_profile(records, discovered_schema)
+
+        # Build metadata context string
+        metadata_context = ""
+        meta = system.get("metadata", {})
+        if meta.get("description"):
+            metadata_context = meta["description"]
+
+        ai_result = await ai_orchestrator.run_analysis(
+            system_id=system_id,
+            system_type=system_type,
+            system_name=system_name,
+            data_profile=data_profile,
+            metadata_context=metadata_context,
+            enable_web_grounding=True,
+        )
+
+        # Merge AI anomalies with rule-based anomalies
+        if ai_result and ai_result.get("anomalies"):
+            for ai_anomaly in ai_result["anomalies"]:
+                # Avoid duplicates by checking title similarity
+                is_duplicate = False
+                for existing in anomalies:
+                    if _titles_overlap(existing.get("title", ""), ai_anomaly.get("title", "")):
+                        # Merge: add AI agent perspectives to existing anomaly
+                        existing.setdefault("contributing_agents", []).extend(
+                            ai_anomaly.get("contributing_agents", [])
+                        )
+                        existing.setdefault("agent_perspectives", []).extend(
+                            ai_anomaly.get("agent_perspectives", [])
+                        )
+                        existing.setdefault("web_references", []).extend(
+                            ai_anomaly.get("web_references", [])
+                        )
+                        # Take higher confidence
+                        if ai_anomaly.get("confidence", 0) > existing.get("confidence", 0):
+                            existing["confidence"] = ai_anomaly["confidence"]
+                        is_duplicate = True
+                        break
+
+                if not is_duplicate:
+                    anomalies.append(ai_anomaly)
+
+        agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
+
+    except Exception as e:
+        print(f"[Analysis] AI agent analysis failed (using rule-based only): {e}")
+        agent_statuses = [{"agent": "AI Orchestrator", "status": "error", "error": str(e)}]
+
+    # Sort all anomalies by impact score
+    anomalies.sort(key=lambda a: a.get("impact_score", 0), reverse=True)
 
     analysis_result = {
         "system_id": system_id,
@@ -788,6 +852,14 @@ async def analyze_system(
         "insights": result.insights,
         "insights_summary": result.summary,
         "recommendations": result.recommendations,
+        # AI agent metadata
+        "ai_analysis": {
+            "ai_powered": ai_result.get("ai_powered", False) if ai_result else False,
+            "agents_used": ai_result.get("agents_used", []) if ai_result else [],
+            "agent_statuses": agent_statuses,
+            "total_findings_raw": ai_result.get("total_findings_raw", 0) if ai_result else 0,
+            "total_anomalies_unified": ai_result.get("total_anomalies_unified", 0) if ai_result else 0,
+        },
     }
 
     # Update system health score
@@ -1056,3 +1128,64 @@ async def get_next_gen_specs(system_id: str):
             "false_positive_reduction": "-25%" if records else "TBD",
         },
     }
+
+
+def _build_data_profile(records: List[Dict], discovered_schema: List[Dict]) -> Dict[str, Any]:
+    """Build a data profile dictionary for AI agents from raw records and schema."""
+    import pandas as pd
+    import numpy as np
+
+    if not records:
+        return {"record_count": 0, "field_count": 0, "fields": [], "sample_rows": []}
+
+    df = pd.DataFrame(records)
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+
+    fields = []
+    for col in df.columns:
+        field_info = {"name": col, "type": str(df[col].dtype)}
+        if col in numeric_cols:
+            field_info["mean"] = float(df[col].mean()) if not pd.isna(df[col].mean()) else None
+            field_info["std"] = float(df[col].std()) if not pd.isna(df[col].std()) else None
+            field_info["min"] = float(df[col].min()) if not pd.isna(df[col].min()) else None
+            field_info["max"] = float(df[col].max()) if not pd.isna(df[col].max()) else None
+            field_info["median"] = float(df[col].median()) if not pd.isna(df[col].median()) else None
+        else:
+            field_info["unique_count"] = int(df[col].nunique())
+            top_values = df[col].value_counts().head(5).to_dict()
+            field_info["top_values"] = {str(k): int(v) for k, v in top_values.items()}
+        fields.append(field_info)
+
+    # Compute top correlations between numeric fields
+    correlations = {}
+    if len(numeric_cols) >= 2:
+        try:
+            corr_matrix = df[numeric_cols].corr()
+            for i, col_a in enumerate(numeric_cols):
+                for col_b in numeric_cols[i + 1:]:
+                    val = corr_matrix.loc[col_a, col_b]
+                    if not np.isnan(val) and abs(val) > 0.3:
+                        correlations[f"{col_a} vs {col_b}"] = round(float(val), 3)
+        except Exception:
+            pass
+
+    # Sample rows
+    sample_rows = df.head(5).to_dict("records")
+
+    return {
+        "record_count": len(df),
+        "field_count": len(df.columns),
+        "fields": fields,
+        "sample_rows": sample_rows,
+        "correlations": correlations,
+    }
+
+
+def _titles_overlap(title_a: str, title_b: str) -> bool:
+    """Check if two anomaly titles refer to the same issue."""
+    a_words = set(title_a.lower().split())
+    b_words = set(title_b.lower().split())
+    if not a_words or not b_words:
+        return False
+    overlap = len(a_words & b_words)
+    return overlap / min(len(a_words), len(b_words)) > 0.5

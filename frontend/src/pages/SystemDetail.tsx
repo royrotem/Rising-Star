@@ -14,7 +14,12 @@ import {
   CheckCircle,
   Database,
   FileText,
-  AlertCircle
+  AlertCircle,
+  Globe,
+  Users,
+  Brain,
+  Cpu,
+  Eye,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -57,6 +62,9 @@ interface AnalysisData {
     confidence?: number;
     value?: Record<string, unknown>;
     expected_range?: [number, number];
+    contributing_agents?: string[];
+    web_references?: string[];
+    agent_perspectives?: Array<{ agent: string; perspective: string }>;
   }>;
   engineering_margins: Array<{
     component: string;
@@ -87,6 +95,13 @@ interface AnalysisData {
     action: string;
     source_anomaly?: string;
   }>;
+  ai_analysis?: {
+    ai_powered: boolean;
+    agents_used: string[];
+    agent_statuses: Array<{ agent: string; status: string; findings: number; perspective?: string; error?: string }>;
+    total_findings_raw: number;
+    total_anomalies_unified: number;
+  };
 }
 
 function getSeverityColor(severity: string) {
@@ -168,6 +183,8 @@ export default function SystemDetail() {
           engineering_margins: result.engineering_margins || [],
           blind_spots: result.blind_spots || [],
           insights_summary: result.insights_summary,
+          insights: result.insights,
+          ai_analysis: result.ai_analysis,
         });
         if (system && result.health_score) {
           setSystem({ ...system, health_score: result.health_score });
@@ -333,6 +350,54 @@ export default function SystemDetail() {
         </div>
       )}
 
+      {/* AI Agents Status */}
+      {analysis?.ai_analysis && (
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Brain className="w-5 h-5 text-purple-400" />
+              AI Multi-Agent Analysis
+            </h2>
+            <span className={clsx(
+              'px-3 py-1 rounded-full text-xs font-medium',
+              analysis.ai_analysis.ai_powered
+                ? 'bg-purple-500/20 text-purple-400'
+                : 'bg-slate-600/50 text-slate-400'
+            )}>
+              {analysis.ai_analysis.ai_powered ? 'LLM Powered' : 'Rule-Based Fallback'}
+            </span>
+          </div>
+          <div className="grid grid-cols-5 gap-3">
+            {analysis.ai_analysis.agent_statuses.map((agent, idx) => (
+              <div
+                key={idx}
+                className={clsx(
+                  'p-3 rounded-lg border text-center',
+                  agent.status === 'success'
+                    ? 'border-green-500/30 bg-green-500/5'
+                    : 'border-red-500/30 bg-red-500/5'
+                )}
+              >
+                <Cpu className={clsx(
+                  'w-5 h-5 mx-auto mb-2',
+                  agent.status === 'success' ? 'text-green-400' : 'text-red-400'
+                )} />
+                <p className="text-xs font-medium text-white truncate">{agent.agent}</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {agent.status === 'success' ? `${agent.findings} findings` : 'Error'}
+                </p>
+              </div>
+            ))}
+          </div>
+          {analysis.ai_analysis.total_findings_raw > 0 && (
+            <p className="text-xs text-slate-500 mt-3 text-center">
+              {analysis.ai_analysis.total_findings_raw} raw findings merged into{' '}
+              {analysis.ai_analysis.total_anomalies_unified} unified anomalies
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Key Insights */}
       {analysis && analysis.insights && analysis.insights.length > 0 && (
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
@@ -469,6 +534,68 @@ export default function SystemDetail() {
                               <span className="text-slate-300">{rec.action}</span>
                             </div>
                           ))}
+                        </div>
+                      )}
+
+                      {/* Contributing Agents */}
+                      {anomaly.contributing_agents && anomaly.contributing_agents.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
+                            <Users className="w-4 h-4" />
+                            Contributing AI Agents
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {anomaly.contributing_agents.map((agent, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-1 bg-purple-500/10 border border-purple-500/30 rounded-full text-xs text-purple-300"
+                              >
+                                {agent}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Agent Perspectives */}
+                      {anomaly.agent_perspectives && anomaly.agent_perspectives.length > 1 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-blue-400 mb-2 flex items-center gap-2">
+                            <Eye className="w-4 h-4" />
+                            Agent Perspectives
+                          </h4>
+                          <div className="space-y-2">
+                            {anomaly.agent_perspectives.map((p, idx) => (
+                              <div key={idx} className="p-2 bg-slate-700/50 rounded-lg">
+                                <span className="text-xs font-medium text-blue-300">{p.agent}:</span>
+                                <p className="text-xs text-slate-400 mt-1">{p.perspective}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Web References */}
+                      {anomaly.web_references && anomaly.web_references.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
+                            <Globe className="w-4 h-4" />
+                            Web References
+                          </h4>
+                          <ul className="space-y-1">
+                            {anomaly.web_references.map((ref, idx) => (
+                              <li key={idx} className="text-xs">
+                                <a
+                                  href={ref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-cyan-400 hover:text-cyan-300 underline truncate block"
+                                >
+                                  {ref}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       )}
                     </div>
