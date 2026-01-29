@@ -268,7 +268,7 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
             reasoning_parts.append(f"Key indicators: {', '.join(matching_keywords[:3])}")
 
     if all_units:
-        reasoning_parts.append(f"Detected physical units: {', '.join(set(all_units)[:5])}")
+        reasoning_parts.append(f"Detected physical units: {', '.join(list(set(all_units))[:5])}")
 
     reasoning = ". ".join(reasoning_parts) if reasoning_parts else "Based on general data structure analysis."
 
