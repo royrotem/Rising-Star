@@ -12,6 +12,7 @@ import clsx from 'clsx';
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Systems', href: '/systems', icon: Cpu },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export default function Layout() {

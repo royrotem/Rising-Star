@@ -37,7 +37,13 @@ except ImportError:
     HAS_HTTPX = False
 
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+def _get_api_key() -> str:
+    """Get the Anthropic API key from app settings (with env fallback)."""
+    try:
+        from ..api.app_settings import get_anthropic_api_key
+        return get_anthropic_api_key()
+    except Exception:
+        return os.environ.get("ANTHROPIC_API_KEY", "")
 
 
 @dataclass
@@ -125,8 +131,15 @@ class BaseAgent:
 
     def __init__(self):
         self.client = None
-        if HAS_ANTHROPIC and ANTHROPIC_API_KEY:
-            self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        self._init_client()
+
+    def _init_client(self):
+        """Initialize or refresh the Anthropic client using the current API key."""
+        api_key = _get_api_key()
+        if HAS_ANTHROPIC and api_key:
+            self.client = anthropic.Anthropic(api_key=api_key)
+        else:
+            self.client = None
 
     def _build_data_summary(self, data_profile: Dict) -> str:
         """Build a concise data summary for the prompt."""
@@ -157,6 +170,7 @@ class BaseAgent:
     async def analyze(self, system_type: str, system_name: str,
                       data_profile: Dict, metadata_context: str = "") -> List[AgentFinding]:
         """Run this agent's analysis.  Falls back to rule-based if no API key."""
+        self._init_client()
         if not self.client:
             return self._fallback_analyze(system_type, data_profile)
 
@@ -444,6 +458,7 @@ class RootCauseInvestigator(BaseAgent):
 
     async def analyze(self, system_type, system_name, data_profile,
                       metadata_context=""):
+        self._init_client()
         if not self.client:
             return self._fallback_analyze(system_type, data_profile)
 
@@ -657,7 +672,7 @@ class AgentOrchestrator:
             "total_findings_raw": len(all_findings),
             "total_anomalies_unified": len(unified),
             "agents_used": [a.name for a in self.agents],
-            "ai_powered": HAS_ANTHROPIC and bool(ANTHROPIC_API_KEY),
+            "ai_powered": HAS_ANTHROPIC and bool(_get_api_key()),
         }
 
     def _merge_findings(self, findings: List[AgentFinding], system_id: str) -> List[UnifiedAnomaly]:

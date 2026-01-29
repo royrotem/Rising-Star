@@ -778,59 +778,60 @@ async def analyze_system(
         })
 
     # === Run AI Multi-Agent Analysis ===
+    from .app_settings import get_ai_settings
+    ai_cfg = get_ai_settings()
+
     ai_result = None
     agent_statuses = []
-    try:
-        # Build data profile for AI agents
-        import pandas as pd
-        data_profile = _build_data_profile(records, discovered_schema)
+    if not ai_cfg.get("enable_ai_agents", True):
+        agent_statuses = [{"agent": "AI Orchestrator", "status": "disabled", "findings": 0}]
 
-        # Build metadata context string
-        metadata_context = ""
-        meta = system.get("metadata", {})
-        if meta.get("description"):
-            metadata_context = meta["description"]
+    if ai_cfg.get("enable_ai_agents", True):
+        try:
+            data_profile = _build_data_profile(records, discovered_schema)
 
-        ai_result = await ai_orchestrator.run_analysis(
-            system_id=system_id,
-            system_type=system_type,
-            system_name=system_name,
-            data_profile=data_profile,
-            metadata_context=metadata_context,
-            enable_web_grounding=True,
-        )
+            metadata_context = ""
+            meta = system.get("metadata", {})
+            if meta.get("description"):
+                metadata_context = meta["description"]
 
-        # Merge AI anomalies with rule-based anomalies
-        if ai_result and ai_result.get("anomalies"):
-            for ai_anomaly in ai_result["anomalies"]:
-                # Avoid duplicates by checking title similarity
-                is_duplicate = False
-                for existing in anomalies:
-                    if _titles_overlap(existing.get("title", ""), ai_anomaly.get("title", "")):
-                        # Merge: add AI agent perspectives to existing anomaly
-                        existing.setdefault("contributing_agents", []).extend(
-                            ai_anomaly.get("contributing_agents", [])
-                        )
-                        existing.setdefault("agent_perspectives", []).extend(
-                            ai_anomaly.get("agent_perspectives", [])
-                        )
-                        existing.setdefault("web_references", []).extend(
-                            ai_anomaly.get("web_references", [])
-                        )
-                        # Take higher confidence
-                        if ai_anomaly.get("confidence", 0) > existing.get("confidence", 0):
-                            existing["confidence"] = ai_anomaly["confidence"]
-                        is_duplicate = True
-                        break
+            ai_result = await ai_orchestrator.run_analysis(
+                system_id=system_id,
+                system_type=system_type,
+                system_name=system_name,
+                data_profile=data_profile,
+                metadata_context=metadata_context,
+                enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
+            )
 
-                if not is_duplicate:
-                    anomalies.append(ai_anomaly)
+            # Merge AI anomalies with rule-based anomalies
+            if ai_result and ai_result.get("anomalies"):
+                for ai_anomaly in ai_result["anomalies"]:
+                    is_duplicate = False
+                    for existing in anomalies:
+                        if _titles_overlap(existing.get("title", ""), ai_anomaly.get("title", "")):
+                            existing.setdefault("contributing_agents", []).extend(
+                                ai_anomaly.get("contributing_agents", [])
+                            )
+                            existing.setdefault("agent_perspectives", []).extend(
+                                ai_anomaly.get("agent_perspectives", [])
+                            )
+                            existing.setdefault("web_references", []).extend(
+                                ai_anomaly.get("web_references", [])
+                            )
+                            if ai_anomaly.get("confidence", 0) > existing.get("confidence", 0):
+                                existing["confidence"] = ai_anomaly["confidence"]
+                            is_duplicate = True
+                            break
 
-        agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
+                    if not is_duplicate:
+                        anomalies.append(ai_anomaly)
 
-    except Exception as e:
-        print(f"[Analysis] AI agent analysis failed (using rule-based only): {e}")
-        agent_statuses = [{"agent": "AI Orchestrator", "status": "error", "error": str(e)}]
+            agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
+
+        except Exception as e:
+            print(f"[Analysis] AI agent analysis failed (using rule-based only): {e}")
+            agent_statuses = [{"agent": "AI Orchestrator", "status": "error", "error": str(e)}]
 
     # Sort all anomalies by impact score
     anomalies.sort(key=lambda a: a.get("impact_score", 0), reverse=True)

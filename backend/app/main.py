@@ -11,6 +11,7 @@ import uvicorn
 
 from .core.config import settings
 from .api.systems import router as systems_router
+from .api.app_settings import router as settings_router
 from .agents.orchestrator import orchestrator
 
 
@@ -64,6 +65,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(systems_router, prefix=settings.API_PREFIX)
+app.include_router(settings_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")

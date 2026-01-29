@@ -6,6 +6,7 @@ import NewSystemWizard from './pages/NewSystemWizard';
 import SystemDetail from './pages/SystemDetail';
 import DataIngestion from './pages/DataIngestion';
 import Conversation from './pages/Conversation';
+import Settings from './pages/Settings';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         <Route path="systems/:systemId" element={<SystemDetail />} />
         <Route path="systems/:systemId/ingest" element={<DataIngestion />} />
         <Route path="systems/:systemId/chat" element={<Conversation />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   );
