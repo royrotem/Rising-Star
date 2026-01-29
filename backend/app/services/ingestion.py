@@ -281,11 +281,11 @@ class IngestionService:
             # Calculate statistics for numeric fields
             if field.inferred_type == 'numeric':
                 field.statistics = {
-                    'min': float(df[column].min()) if not df[column].isna().all() else None,
-                    'max': float(df[column].max()) if not df[column].isna().all() else None,
-                    'mean': float(df[column].mean()) if not df[column].isna().all() else None,
-                    'std': float(df[column].std()) if not df[column].isna().all() else None,
-                    'null_percentage': float(df[column].isna().sum() / len(df) * 100),
+                    'min': self._safe_float(df[column].min()) if not df[column].isna().all() else None,
+                    'max': self._safe_float(df[column].max()) if not df[column].isna().all() else None,
+                    'mean': self._safe_float(df[column].mean()) if not df[column].isna().all() else None,
+                    'std': self._safe_float(df[column].std()) if not df[column].isna().all() else None,
+                    'null_percentage': self._safe_float(df[column].isna().sum() / len(df) * 100),
                 }
 
             # Set confidence based on how certain we are about the inference
@@ -294,6 +294,16 @@ class IngestionService:
             discovered.append(field)
 
         return discovered
+
+    def _safe_float(self, value) -> Optional[float]:
+        """Convert a value to float, returning None for NaN/inf values."""
+        try:
+            f = float(value)
+            if np.isnan(f) or np.isinf(f):
+                return None
+            return f
+        except (TypeError, ValueError):
+            return None
 
     def _infer_field_type(self, series: pd.Series) -> str:
         """Infer the type of a field."""
