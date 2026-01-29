@@ -99,8 +99,8 @@ class IngestionService:
         records, raw_schema = await parser(file_content)
 
         # Perform autonomous schema discovery
-        discovered_fields = await self._discover_schema(records, raw_schema)
-        
+        discovered_fields, metadata_info = await self._discover_schema(records, raw_schema)
+
         # Find relationships between fields
         relationships = await self._discover_relationships(records, discovered_fields)
 
@@ -118,6 +118,7 @@ class IngestionService:
             "confirmation_requests": confirmation_requests,
             "sample_records": records,  # Return all records for storage
             "ingestion_timestamp": datetime.utcnow().isoformat(),
+            "metadata_info": metadata_info,  # Include extracted metadata
         }
 
     async def _parse_csv(self, file_content: BinaryIO) -> tuple[List[Dict], Dict]:
@@ -238,13 +239,16 @@ class IngestionService:
         self,
         records: List[Dict],
         raw_schema: Dict
-    ) -> List[DiscoveredField]:
+    ) -> tuple[List[DiscoveredField], Dict[str, Any]]:
         """
         Autonomously discover field meanings and types.
         This is where the "AI Agent" learns the system's DNA.
+
+        Returns:
+            Tuple of (discovered_fields, metadata_info)
         """
         if not records:
-            return []
+            return [], {}
 
         # Filter out columns that contain unhashable types (dicts, lists)
         clean_records = []
@@ -258,6 +262,13 @@ class IngestionService:
             clean_records.append(clean_record)
 
         df = pd.DataFrame(clean_records)
+
+        # First pass: detect metadata/description fields that explain the dataset
+        metadata_info = self._detect_and_extract_metadata(df)
+        extracted_descriptions = metadata_info.get('field_descriptions', {})
+        dataset_description = metadata_info.get('dataset_description', '')
+        dataset_purpose = metadata_info.get('dataset_purpose', '')
+
         discovered = []
 
         for column in df.columns:
@@ -274,9 +285,12 @@ class IngestionService:
 
             # Infer physical unit from field name
             field.physical_unit = self._infer_physical_unit(column)
-            
-            # Infer semantic meaning
-            field.inferred_meaning = self._infer_meaning(column, df[column])
+
+            # Infer semantic meaning - first check if metadata provided a description
+            if column in extracted_descriptions:
+                field.inferred_meaning = extracted_descriptions[column]
+            else:
+                field.inferred_meaning = self._infer_meaning(column, df[column])
 
             # Calculate statistics for numeric fields
             if field.inferred_type == 'numeric':
@@ -290,10 +304,114 @@ class IngestionService:
 
             # Set confidence based on how certain we are about the inference
             field.confidence = self._calculate_confidence(field)
-            
+
             discovered.append(field)
 
-        return discovered
+        return discovered, metadata_info
+
+    def _detect_and_extract_metadata(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Detect metadata/description fields and extract field descriptions.
+        Some datasets include a field that describes the dataset structure.
+        """
+        metadata_indicators = [
+            'dataset', 'description', 'about', 'metadata', 'schema',
+            'field', 'column', 'feature', 'variable', 'attribute',
+            'this data', 'this file', 'contains', 'includes',
+            'key features', 'data dictionary', 'documentation'
+        ]
+
+        result = {
+            'field_descriptions': {},
+            'dataset_description': '',
+            'dataset_purpose': '',
+            'metadata_field': None
+        }
+
+        for column in df.columns:
+            # Check if this column might be a metadata/description field
+            sample = df[column].dropna().head(1).tolist()
+            if not sample:
+                continue
+
+            value = str(sample[0]).lower()
+
+            # Check if it's a long text field with metadata indicators
+            if len(value) > 200 and sum(1 for ind in metadata_indicators if ind in value) >= 3:
+                result['metadata_field'] = column
+                full_text = str(sample[0])
+                result['dataset_description'] = full_text
+
+                # Extract field descriptions from the text
+                result['field_descriptions'] = self._extract_field_descriptions(full_text, df.columns.tolist())
+
+                # Extract purpose/use case
+                result['dataset_purpose'] = self._extract_purpose(full_text)
+                break
+
+        return result
+
+    def _extract_field_descriptions(self, text: str, columns: List[str]) -> Dict[str, str]:
+        """
+        Parse metadata text to extract descriptions for specific fields.
+        Looks for patterns like "Field: description" or "Field - description"
+        """
+        import re
+        descriptions = {}
+
+        # Common patterns for field descriptions
+        # Pattern: "FieldName: Description" or "FieldName - Description"
+        for column in columns:
+            # Skip very short column names to avoid false matches
+            if len(column) < 2:
+                continue
+
+            # Look for patterns like "FieldName: description" or "FieldName - description"
+            patterns = [
+                rf'\b{re.escape(column)}\s*[:–-]\s*([^.!?\n]+[.!?]?)',  # Field: description
+                rf'\b{re.escape(column)}\b[^:]*?(?:is|are|represents?|measures?|captures?|records?|indicates?|shows?)\s+([^.!?\n]+[.!?]?)',  # Field represents...
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    desc = match.group(1).strip()
+                    # Clean up the description
+                    desc = re.sub(r'\s+', ' ', desc)
+                    if len(desc) > 10 and len(desc) < 300:
+                        descriptions[column] = desc
+                        break
+
+        # Also look for bullet-point or list-style descriptions
+        # Pattern: "• FieldName - description" or "- FieldName: description"
+        bullet_pattern = r'[•\-\*]\s*(\w+[\w_]*)\s*[:–-]\s*([^•\-\*\n]+)'
+        for match in re.finditer(bullet_pattern, text):
+            field_name = match.group(1)
+            desc = match.group(2).strip()
+            # Check if this matches any column (case-insensitive)
+            for column in columns:
+                if column.lower() == field_name.lower() and column not in descriptions:
+                    descriptions[column] = desc
+                    break
+
+        return descriptions
+
+    def _extract_purpose(self, text: str) -> str:
+        """Extract the purpose/use case from dataset description."""
+        import re
+
+        purpose_patterns = [
+            r'(?:designed to|used for|intended for|suitable for|supports?)\s+([^.]+\.)',
+            r'(?:use cases?|applications?|purposes?)[:]\s*([^.]+\.)',
+            r'(?:predictive maintenance|fault detection|anomaly detection|monitoring)[^.]*\.',
+        ]
+
+        for pattern in purpose_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(0).strip()
+
+        return ''
 
     def _safe_float(self, value) -> Optional[float]:
         """Convert a value to float, returning None for NaN/inf values."""

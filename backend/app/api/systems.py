@@ -138,6 +138,7 @@ async def analyze_files(
 
     all_discovered_fields = []
     all_confirmation_requests = []
+    all_metadata = []  # Collect metadata from all files
     total_records = 0
     file_summaries = []
 
@@ -159,12 +160,18 @@ async def analyze_files(
             all_confirmation_requests.extend(result.get("confirmation_requests", []))
             total_records += result.get("record_count", 0)
 
+            # Collect metadata info if present
+            metadata_info = result.get("metadata_info", {})
+            if metadata_info.get("dataset_description"):
+                all_metadata.append(metadata_info)
+
             # Collect file summary for AI analysis
             file_summaries.append({
                 "filename": file.filename,
                 "record_count": result.get("record_count", 0),
                 "fields": [f.get("name", "") for f in result.get("discovered_fields", [])],
                 "field_types": {f.get("name", ""): f.get("inferred_type", "") for f in result.get("discovered_fields", [])},
+                "metadata": metadata_info,  # Include metadata in file summary
             })
 
             # Reset file position for potential re-reading
@@ -174,8 +181,8 @@ async def analyze_files(
             print(f"Error processing file {file.filename}: {e}")
             continue
 
-    # Generate AI recommendation based on analyzed data
-    recommendation = generate_system_recommendation(file_summaries, all_discovered_fields)
+    # Generate AI recommendation based on analyzed data (including metadata)
+    recommendation = generate_system_recommendation(file_summaries, all_discovered_fields, all_metadata)
 
     return {
         "status": "success",
@@ -187,10 +194,13 @@ async def analyze_files(
     }
 
 
-def generate_system_recommendation(file_summaries: List[Dict], discovered_fields: List[Dict]) -> Dict:
+def generate_system_recommendation(file_summaries: List[Dict], discovered_fields: List[Dict], metadata_list: List[Dict] = None) -> Dict:
     """
     Generate AI recommendations for system configuration based on analyzed data.
+    Uses metadata descriptions when available for more accurate recommendations.
     """
+    metadata_list = metadata_list or []
+
     # Calculate total records first
     total_records = sum(s.get("record_count", 0) for s in file_summaries)
 
@@ -198,6 +208,9 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
     all_fields = [f.get("name", "").lower() for f in discovered_fields]
     all_field_types = [f.get("inferred_type", "") for f in discovered_fields]
     all_units = [f.get("physical_unit", "") for f in discovered_fields if f.get("physical_unit")]
+
+    # Extract insights from metadata descriptions
+    metadata_insights = _extract_metadata_insights(metadata_list)
 
     # Keywords for system type detection
     vehicle_keywords = ["speed", "velocity", "rpm", "engine", "motor", "battery", "fuel", "odometer",
@@ -210,7 +223,9 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
     aerospace_keywords = ["altitude", "airspeed", "heading", "pitch", "roll", "yaw", "thrust",
                          "fuel_flow", "engine", "flap", "rudder", "aileron", "flight"]
     industrial_keywords = ["pump", "valve", "flow", "pressure", "level", "tank", "motor",
-                          "conveyor", "plc", "scada", "process", "production", "machine"]
+                          "conveyor", "plc", "scada", "process", "production", "machine",
+                          "predictive maintenance", "fault detection", "anomaly", "sensor",
+                          "vibration", "acoustic", "machine_id", "equipment", "health"]
 
     # Score each system type
     scores = {
@@ -220,6 +235,12 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
         "aerospace": sum(1 for f in all_fields if any(k in f for k in aerospace_keywords)),
         "industrial": sum(1 for f in all_fields if any(k in f for k in industrial_keywords)),
     }
+
+    # Boost scores based on metadata insights
+    if metadata_insights.get("detected_type"):
+        detected = metadata_insights["detected_type"]
+        if detected in scores:
+            scores[detected] += 5  # Strong boost from metadata
 
     # Determine best matching system type
     suggested_type = max(scores, key=scores.get) if max(scores.values()) > 0 else "industrial"
@@ -259,6 +280,13 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
 
     # Build reasoning
     reasoning_parts = []
+
+    # Add metadata-based reasoning first (highest confidence)
+    if metadata_insights.get("purpose"):
+        reasoning_parts.append(f"Dataset purpose: {metadata_insights['purpose']}")
+    if metadata_insights.get("detected_type"):
+        reasoning_parts.append(f"Metadata indicates {metadata_insights['detected_type']} system")
+
     if scores[suggested_type] > 0:
         matching_keywords = [f for f in all_fields if any(k in f for k in
             {"vehicle": vehicle_keywords, "robot": robot_keywords, "medical_device": medical_keywords,
@@ -272,10 +300,13 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
 
     reasoning = ". ".join(reasoning_parts) if reasoning_parts else "Based on general data structure analysis."
 
+    # Use metadata description if available, otherwise generate one
+    suggested_description = metadata_insights.get("description") or descriptions.get(suggested_type, "System monitoring and analysis.")
+
     return {
         "suggested_name": suggested_name,
         "suggested_type": suggested_type,
-        "suggested_description": descriptions.get(suggested_type, "System monitoring and analysis."),
+        "suggested_description": suggested_description,
         "confidence": confidence,
         "reasoning": reasoning,
         "analysis_summary": {
@@ -283,8 +314,76 @@ def generate_system_recommendation(file_summaries: List[Dict], discovered_fields
             "total_records": total_records,
             "unique_fields": len(set(all_fields)),
             "detected_units": list(set(all_units))[:10],
+            "metadata_found": len(metadata_list) > 0,
         }
     }
+
+
+def _extract_metadata_insights(metadata_list: List[Dict]) -> Dict[str, Any]:
+    """
+    Extract insights from dataset metadata descriptions.
+    Parses description text to determine system type, purpose, etc.
+    """
+    import re
+
+    insights = {
+        "detected_type": None,
+        "purpose": None,
+        "description": None,
+    }
+
+    if not metadata_list:
+        return insights
+
+    # Combine all metadata descriptions
+    all_descriptions = " ".join(m.get("dataset_description", "") for m in metadata_list if m.get("dataset_description"))
+
+    if not all_descriptions:
+        return insights
+
+    desc_lower = all_descriptions.lower()
+
+    # Detect system type from metadata
+    type_patterns = {
+        "industrial": ["industrial", "machine", "production", "manufacturing", "predictive maintenance",
+                      "fault detection", "equipment health", "sensor network", "iot"],
+        "vehicle": ["vehicle", "automotive", "car", "truck", "fleet", "telematics", "driving"],
+        "robot": ["robot", "robotic", "automation", "arm", "manipulator"],
+        "medical_device": ["medical", "patient", "health", "clinical", "diagnostic"],
+        "aerospace": ["aerospace", "flight", "aircraft", "aviation", "drone", "uav"],
+    }
+
+    type_scores = {}
+    for sys_type, patterns in type_patterns.items():
+        type_scores[sys_type] = sum(1 for p in patterns if p in desc_lower)
+
+    if max(type_scores.values()) > 0:
+        insights["detected_type"] = max(type_scores, key=type_scores.get)
+
+    # Extract purpose
+    purpose_patterns = [
+        r'designed to support ([^.]+)',
+        r'used for ([^.]+)',
+        r'suitable for ([^.]+)',
+        r'support[s]? ([^.]*(?:maintenance|detection|monitoring|analysis)[^.]*)',
+    ]
+
+    for pattern in purpose_patterns:
+        match = re.search(pattern, desc_lower)
+        if match:
+            insights["purpose"] = match.group(1).strip()[:150]
+            break
+
+    # Use first 300 chars of description as suggested description
+    if len(all_descriptions) > 50:
+        # Find first sentence or use first 300 chars
+        first_sentence = re.match(r'^[^.!?]+[.!?]', all_descriptions)
+        if first_sentence:
+            insights["description"] = first_sentence.group(0).strip()
+        else:
+            insights["description"] = all_descriptions[:300].strip()
+
+    return insights
 
 
 @router.post("/", response_model=SystemResponse)
