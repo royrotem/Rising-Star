@@ -123,6 +123,169 @@ if DEMO_MODE:
     init_demo_systems()
 
 
+@router.post("/analyze-files")
+async def analyze_files(
+    files: List[UploadFile] = File(...),
+):
+    """
+    Analyze multiple uploaded files to discover schema and suggest system configuration.
+
+    This endpoint processes all uploaded files, discovers relationships between them,
+    and provides AI recommendations for system name, type, and description.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+
+    all_discovered_fields = []
+    all_confirmation_requests = []
+    total_records = 0
+    file_summaries = []
+
+    # Process each file
+    for file in files:
+        try:
+            result = await ingestion_service.ingest_file(
+                file_content=file.file,
+                filename=file.filename,
+                system_id="temp_analysis",
+                source_name=file.filename,
+            )
+
+            # Add source file info to each field
+            for field in result.get("discovered_fields", []):
+                field["source_file"] = file.filename
+                all_discovered_fields.append(field)
+
+            all_confirmation_requests.extend(result.get("confirmation_requests", []))
+            total_records += result.get("record_count", 0)
+
+            # Collect file summary for AI analysis
+            file_summaries.append({
+                "filename": file.filename,
+                "record_count": result.get("record_count", 0),
+                "fields": [f.get("name", "") for f in result.get("discovered_fields", [])],
+                "field_types": {f.get("name", ""): f.get("inferred_type", "") for f in result.get("discovered_fields", [])},
+            })
+
+            # Reset file position for potential re-reading
+            file.file.seek(0)
+
+        except Exception as e:
+            print(f"Error processing file {file.filename}: {e}")
+            continue
+
+    # Generate AI recommendation based on analyzed data
+    recommendation = generate_system_recommendation(file_summaries, all_discovered_fields)
+
+    return {
+        "status": "success",
+        "files_analyzed": len(files),
+        "total_records": total_records,
+        "discovered_fields": all_discovered_fields,
+        "confirmation_requests": all_confirmation_requests,
+        "recommendation": recommendation,
+    }
+
+
+def generate_system_recommendation(file_summaries: List[Dict], discovered_fields: List[Dict]) -> Dict:
+    """
+    Generate AI recommendations for system configuration based on analyzed data.
+    """
+    # Collect all field names for analysis
+    all_fields = [f.get("name", "").lower() for f in discovered_fields]
+    all_field_types = [f.get("inferred_type", "") for f in discovered_fields]
+    all_units = [f.get("physical_unit", "") for f in discovered_fields if f.get("physical_unit")]
+
+    # Keywords for system type detection
+    vehicle_keywords = ["speed", "velocity", "rpm", "engine", "motor", "battery", "fuel", "odometer",
+                       "gps", "latitude", "longitude", "steering", "brake", "throttle", "gear",
+                       "wheel", "tire", "acceleration", "can_bus", "obd"]
+    robot_keywords = ["joint", "axis", "torque", "servo", "gripper", "end_effector", "pose",
+                     "position", "orientation", "robot", "arm", "actuator", "encoder", "dof"]
+    medical_keywords = ["patient", "heart", "ecg", "ekg", "blood", "pressure", "pulse", "oxygen",
+                       "saturation", "temperature", "respiration", "mri", "ct", "scan", "dose"]
+    aerospace_keywords = ["altitude", "airspeed", "heading", "pitch", "roll", "yaw", "thrust",
+                         "fuel_flow", "engine", "flap", "rudder", "aileron", "flight"]
+    industrial_keywords = ["pump", "valve", "flow", "pressure", "level", "tank", "motor",
+                          "conveyor", "plc", "scada", "process", "production", "machine"]
+
+    # Score each system type
+    scores = {
+        "vehicle": sum(1 for f in all_fields if any(k in f for k in vehicle_keywords)),
+        "robot": sum(1 for f in all_fields if any(k in f for k in robot_keywords)),
+        "medical_device": sum(1 for f in all_fields if any(k in f for k in medical_keywords)),
+        "aerospace": sum(1 for f in all_fields if any(k in f for k in aerospace_keywords)),
+        "industrial": sum(1 for f in all_fields if any(k in f for k in industrial_keywords)),
+    }
+
+    # Determine best matching system type
+    suggested_type = max(scores, key=scores.get) if max(scores.values()) > 0 else "industrial"
+    confidence = min(0.95, max(scores.values()) / max(len(all_fields), 1) + 0.5) if all_fields else 0.5
+
+    # Generate suggested name based on type and file info
+    type_names = {
+        "vehicle": "Vehicle Telemetry System",
+        "robot": "Robot Control System",
+        "medical_device": "Medical Monitoring System",
+        "aerospace": "Flight Data System",
+        "industrial": "Industrial Process System",
+    }
+
+    # Try to extract name hints from filenames
+    file_names = [s.get("filename", "") for s in file_summaries]
+    name_hints = []
+    for fn in file_names:
+        # Extract meaningful parts from filename
+        clean_name = fn.replace("_", " ").replace("-", " ").split(".")[0]
+        if len(clean_name) > 3:
+            name_hints.append(clean_name.title())
+
+    if name_hints:
+        suggested_name = f"{name_hints[0]} System"
+    else:
+        suggested_name = type_names.get(suggested_type, "Data System")
+
+    # Generate description
+    descriptions = {
+        "vehicle": f"Vehicle telemetry system monitoring {len(discovered_fields)} parameters including {', '.join(all_fields[:3])}. Data collected from {len(file_summaries)} source(s) with {total_records} total records." if all_fields else "Vehicle telemetry monitoring system.",
+        "robot": f"Robotic system with {len(discovered_fields)} monitored parameters. Tracking {', '.join(all_fields[:3])} from {len(file_summaries)} data source(s)." if all_fields else "Robotic control and monitoring system.",
+        "medical_device": f"Medical device monitoring {len(discovered_fields)} health parameters from {len(file_summaries)} source(s)." if all_fields else "Medical device monitoring system.",
+        "aerospace": f"Aerospace system tracking {len(discovered_fields)} flight parameters from {len(file_summaries)} data source(s)." if all_fields else "Aerospace monitoring system.",
+        "industrial": f"Industrial process system monitoring {len(discovered_fields)} parameters from {len(file_summaries)} source(s)." if all_fields else "Industrial process monitoring system.",
+    }
+
+    # Build reasoning
+    reasoning_parts = []
+    if scores[suggested_type] > 0:
+        matching_keywords = [f for f in all_fields if any(k in f for k in
+            {"vehicle": vehicle_keywords, "robot": robot_keywords, "medical_device": medical_keywords,
+             "aerospace": aerospace_keywords, "industrial": industrial_keywords}[suggested_type])]
+        reasoning_parts.append(f"Found {scores[suggested_type]} field(s) matching {suggested_type} patterns")
+        if matching_keywords[:3]:
+            reasoning_parts.append(f"Key indicators: {', '.join(matching_keywords[:3])}")
+
+    if all_units:
+        reasoning_parts.append(f"Detected physical units: {', '.join(set(all_units)[:5])}")
+
+    reasoning = ". ".join(reasoning_parts) if reasoning_parts else "Based on general data structure analysis."
+
+    total_records = sum(s.get("record_count", 0) for s in file_summaries)
+
+    return {
+        "suggested_name": suggested_name,
+        "suggested_type": suggested_type,
+        "suggested_description": descriptions.get(suggested_type, "System monitoring and analysis."),
+        "confidence": confidence,
+        "reasoning": reasoning,
+        "analysis_summary": {
+            "files_analyzed": len(file_summaries),
+            "total_records": total_records,
+            "unique_fields": len(set(all_fields)),
+            "detected_units": list(set(all_units))[:10],
+        }
+    }
+
+
 @router.post("/", response_model=SystemResponse)
 async def create_system(system: SystemCreate):
     """Create a new monitored system."""
