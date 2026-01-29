@@ -311,88 +311,146 @@ class IngestionService:
 
     def _detect_and_extract_metadata(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        Detect metadata/description fields and extract field descriptions.
-        Some datasets include a field that describes the dataset structure.
+        Deep scan all content to find metadata/description fields.
+        Scans ALL values in ALL columns to find dataset documentation.
         """
-        metadata_indicators = [
-            'dataset', 'description', 'about', 'metadata', 'schema',
-            'field', 'column', 'feature', 'variable', 'attribute',
-            'this data', 'this file', 'contains', 'includes',
-            'key features', 'data dictionary', 'documentation'
-        ]
+        import re
 
         result = {
             'field_descriptions': {},
             'dataset_description': '',
             'dataset_purpose': '',
-            'metadata_field': None
+            'metadata_field': None,
+            'context_texts': []  # All found contextual texts
         }
 
+        metadata_indicators = [
+            'dataset', 'this data', 'provides', 'contains', 'includes',
+            'designed to', 'used for', 'features', 'field', 'column',
+            'key features', 'sensor', 'measurement', 'monitoring'
+        ]
+
+        found_descriptions = []
+
+        # Deep scan: check ALL values in ALL columns for metadata content
         for column in df.columns:
-            # Check if this column might be a metadata/description field
-            sample = df[column].dropna().head(1).tolist()
-            if not sample:
+            try:
+                # Get all unique non-null values (limit to prevent memory issues)
+                unique_values = df[column].dropna().unique()[:100]
+
+                for value in unique_values:
+                    text = str(value)
+
+                    # Skip short values or numeric-looking values
+                    if len(text) < 100:
+                        continue
+
+                    text_lower = text.lower()
+
+                    # Check if this looks like documentation/metadata
+                    indicator_count = sum(1 for ind in metadata_indicators if ind in text_lower)
+
+                    # If it has multiple indicators and is long enough, it's likely metadata
+                    if indicator_count >= 2 and len(text) > 150:
+                        found_descriptions.append({
+                            'column': column,
+                            'text': text,
+                            'indicator_count': indicator_count,
+                            'length': len(text)
+                        })
+
+            except Exception:
                 continue
 
-            value = str(sample[0]).lower()
+        # Sort by indicator count and length to get the most relevant description
+        found_descriptions.sort(key=lambda x: (x['indicator_count'], x['length']), reverse=True)
 
-            # Check if it's a long text field with metadata indicators
-            if len(value) > 200 and sum(1 for ind in metadata_indicators if ind in value) >= 3:
-                result['metadata_field'] = column
-                full_text = str(sample[0])
-                result['dataset_description'] = full_text
+        if found_descriptions:
+            best_match = found_descriptions[0]
+            result['metadata_field'] = best_match['column']
+            result['dataset_description'] = best_match['text']
+            result['context_texts'] = [d['text'] for d in found_descriptions[:3]]
 
-                # Extract field descriptions from the text
-                result['field_descriptions'] = self._extract_field_descriptions(full_text, df.columns.tolist())
+            # Extract field descriptions from ALL found metadata texts
+            all_columns = df.columns.tolist()
+            combined_text = ' '.join(d['text'] for d in found_descriptions)
+            result['field_descriptions'] = self._extract_field_descriptions_deep(combined_text, all_columns)
 
-                # Extract purpose/use case
-                result['dataset_purpose'] = self._extract_purpose(full_text)
-                break
+            # Extract purpose
+            result['dataset_purpose'] = self._extract_purpose(combined_text)
 
         return result
 
-    def _extract_field_descriptions(self, text: str, columns: List[str]) -> Dict[str, str]:
+    def _extract_field_descriptions_deep(self, text: str, columns: List[str]) -> Dict[str, str]:
         """
-        Parse metadata text to extract descriptions for specific fields.
-        Looks for patterns like "Field: description" or "Field - description"
+        Deep extraction of field descriptions from metadata text.
+        Uses multiple strategies to find field meanings.
         """
         import re
         descriptions = {}
 
-        # Common patterns for field descriptions
-        # Pattern: "FieldName: Description" or "FieldName - Description"
+        # Normalize text for matching
+        text_normalized = re.sub(r'\s+', ' ', text)
+
         for column in columns:
-            # Skip very short column names to avoid false matches
             if len(column) < 2:
                 continue
 
-            # Look for patterns like "FieldName: description" or "FieldName - description"
+            # Strategy 1: Direct "FieldName: description" pattern
             patterns = [
-                rf'\b{re.escape(column)}\s*[:–-]\s*([^.!?\n]+[.!?]?)',  # Field: description
-                rf'\b{re.escape(column)}\b[^:]*?(?:is|are|represents?|measures?|captures?|records?|indicates?|shows?)\s+([^.!?\n]+[.!?]?)',  # Field represents...
+                # "Timestamp: Precise time of each sensor reading"
+                rf'\b{re.escape(column)}\s*[:]\s*([^.!?\n⭐]+[.!?]?)',
+                # "Timestamp - Precise time..."
+                rf'\b{re.escape(column)}\s*[-–—]\s*([^.!?\n⭐]+[.!?]?)',
+                # "The Timestamp field represents..."
+                rf'(?:the\s+)?{re.escape(column)}(?:\s+field)?\s+(?:is|represents?|measures?|captures?|records?|indicates?|shows?|provides?)\s+([^.!?\n]+[.!?]?)',
             ]
 
             for pattern in patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
+                match = re.search(pattern, text_normalized, re.IGNORECASE)
                 if match:
                     desc = match.group(1).strip()
-                    # Clean up the description
                     desc = re.sub(r'\s+', ' ', desc)
-                    if len(desc) > 10 and len(desc) < 300:
+                    # Clean trailing punctuation duplicates
+                    desc = re.sub(r'[.!?]+$', '.', desc)
+                    if 10 < len(desc) < 300:
                         descriptions[column] = desc
                         break
 
-        # Also look for bullet-point or list-style descriptions
-        # Pattern: "• FieldName - description" or "- FieldName: description"
-        bullet_pattern = r'[•\-\*]\s*(\w+[\w_]*)\s*[:–-]\s*([^•\-\*\n]+)'
-        for match in re.finditer(bullet_pattern, text):
-            field_name = match.group(1)
-            desc = match.group(2).strip()
-            # Check if this matches any column (case-insensitive)
-            for column in columns:
-                if column.lower() == field_name.lower() and column not in descriptions:
-                    descriptions[column] = desc
-                    break
+            # Strategy 2: Look for column name followed by explanatory text
+            if column not in descriptions:
+                # Match "Column (explanation)" or "Column = explanation"
+                alt_patterns = [
+                    rf'\b{re.escape(column)}\s*\(([^)]+)\)',
+                    rf'\b{re.escape(column)}\s*=\s*([^,.\n]+)',
+                ]
+                for pattern in alt_patterns:
+                    match = re.search(pattern, text_normalized, re.IGNORECASE)
+                    if match:
+                        desc = match.group(1).strip()
+                        if 5 < len(desc) < 200:
+                            descriptions[column] = desc
+                            break
+
+        # Strategy 3: Look for numbered or bulleted lists
+        list_patterns = [
+            r'[•\-\*]\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:–-]\s*([^•\-\*\n]+)',
+            r'\d+[.)]\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:–-]\s*([^0-9\n]+)',
+        ]
+
+        for pattern in list_patterns:
+            for match in re.finditer(pattern, text):
+                field_name = match.group(1).strip()
+                desc = match.group(2).strip()
+
+                # Find matching column (case-insensitive, underscore-insensitive)
+                for column in columns:
+                    col_normalized = column.lower().replace('_', '')
+                    field_normalized = field_name.lower().replace('_', '')
+                    if col_normalized == field_normalized and column not in descriptions:
+                        if 5 < len(desc) < 300:
+                            descriptions[column] = desc
+                        break
 
         return descriptions
 

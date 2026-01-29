@@ -181,6 +181,26 @@ async def analyze_files(
             print(f"Error processing file {file.filename}: {e}")
             continue
 
+    # === SECOND PASS: Enrich fields with combined context from all files ===
+    # Collect all field descriptions from all metadata
+    combined_field_descriptions = {}
+    combined_context_texts = []
+
+    for meta in all_metadata:
+        if meta.get('field_descriptions'):
+            combined_field_descriptions.update(meta['field_descriptions'])
+        if meta.get('context_texts'):
+            combined_context_texts.extend(meta['context_texts'])
+        elif meta.get('dataset_description'):
+            combined_context_texts.append(meta['dataset_description'])
+
+    # Enrich discovered fields with context from metadata
+    all_discovered_fields = _enrich_fields_with_context(
+        all_discovered_fields,
+        combined_field_descriptions,
+        combined_context_texts
+    )
+
     # Generate AI recommendation based on analyzed data (including metadata)
     recommendation = generate_system_recommendation(file_summaries, all_discovered_fields, all_metadata)
 
@@ -191,7 +211,55 @@ async def analyze_files(
         "discovered_fields": all_discovered_fields,
         "confirmation_requests": all_confirmation_requests,
         "recommendation": recommendation,
+        "context_extracted": len(combined_context_texts) > 0,
+        "fields_enriched": len(combined_field_descriptions),
     }
+
+
+def _enrich_fields_with_context(
+    discovered_fields: List[Dict],
+    field_descriptions: Dict[str, str],
+    context_texts: List[str]
+) -> List[Dict]:
+    """
+    Second pass: Enrich discovered fields with context extracted from all files.
+    Updates field meanings based on metadata descriptions found anywhere in the data.
+    """
+    import re
+
+    # Build a combined context for searching
+    combined_context = ' '.join(context_texts)
+
+    for field in discovered_fields:
+        field_name = field.get('name', '')
+
+        # Priority 1: Direct field description from metadata
+        if field_name in field_descriptions:
+            field['inferred_meaning'] = field_descriptions[field_name]
+            field['meaning_source'] = 'metadata_description'
+            field['confidence'] = min(field.get('confidence', 0.5) + 0.3, 1.0)
+            continue
+
+        # Priority 2: Try to find description in combined context
+        if combined_context and field.get('inferred_meaning', '').startswith('Unknown'):
+            # Search for any mention of this field in context
+            patterns = [
+                rf'\b{re.escape(field_name)}\s*[:–-]\s*([^.!?\n⭐]+[.!?]?)',
+                rf'\b{re.escape(field_name)}\b[^:]*?(?:is|are|represents?|measures?|captures?|records?|indicates?)\s+([^.!?\n]+[.!?]?)',
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, combined_context, re.IGNORECASE)
+                if match:
+                    desc = match.group(1).strip()
+                    desc = re.sub(r'\s+', ' ', desc)
+                    if 10 < len(desc) < 300:
+                        field['inferred_meaning'] = desc
+                        field['meaning_source'] = 'context_extraction'
+                        field['confidence'] = min(field.get('confidence', 0.5) + 0.2, 1.0)
+                        break
+
+    return discovered_fields
 
 
 def generate_system_recommendation(file_summaries: List[Dict], discovered_fields: List[Dict], metadata_list: List[Dict] = None) -> Dict:
