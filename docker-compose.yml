@@ -38,6 +38,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/uaie
       REDIS_URL: redis://redis:6379/0
       DEBUG: "true"
+      DEMO_MODE: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -47,6 +48,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - uaie_data:/app/data
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   # Frontend
@@ -62,3 +64,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uaie_data:

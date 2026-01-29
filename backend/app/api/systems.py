@@ -9,11 +9,12 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 import uuid
+import os
 
 from ..services.ingestion import IngestionService
 from ..services.anomaly_detection import AnomalyDetectionService
 from ..services.root_cause import RootCauseService
-from ..agents.orchestrator import orchestrator
+from ..services.data_store import data_store
 
 
 router = APIRouter(prefix="/systems", tags=["Systems"])
@@ -22,6 +23,9 @@ router = APIRouter(prefix="/systems", tags=["Systems"])
 ingestion_service = IngestionService()
 anomaly_service = AnomalyDetectionService()
 root_cause_service = RootCauseService()
+
+# Check if demo mode is enabled
+DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
 
 
 # Pydantic models for API
@@ -62,16 +66,11 @@ class ConversationQuery(BaseModel):
     context: Optional[Dict[str, Any]] = {}
 
 
-# In-memory storage (replace with database in production)
-systems_db: Dict[str, Dict] = {}
-data_sources_db: Dict[str, Dict] = {}
-
-
 def init_demo_systems():
     """Initialize demo systems for demonstration purposes."""
     demo_systems = [
         {
-            "id": "1",
+            "id": "demo-1",
             "name": "Fleet Vehicle Alpha",
             "system_type": "vehicle",
             "serial_number": "VH-2024-001",
@@ -81,10 +80,11 @@ def init_demo_systems():
             "health_score": 87.5,
             "discovered_schema": {},
             "confirmed_fields": {},
+            "is_demo": True,
             "created_at": "2024-01-01T00:00:00Z",
         },
         {
-            "id": "2",
+            "id": "demo-2",
             "name": "Robot Arm Unit 7",
             "system_type": "robot",
             "serial_number": "RA-2024-007",
@@ -94,10 +94,11 @@ def init_demo_systems():
             "health_score": 94.2,
             "discovered_schema": {},
             "confirmed_fields": {},
+            "is_demo": True,
             "created_at": "2024-01-02T00:00:00Z",
         },
         {
-            "id": "3",
+            "id": "demo-3",
             "name": "Medical Scanner MRI-3",
             "system_type": "medical_device",
             "serial_number": "MRI-2024-003",
@@ -107,64 +108,81 @@ def init_demo_systems():
             "health_score": 99.1,
             "discovered_schema": {},
             "confirmed_fields": {},
+            "is_demo": True,
             "created_at": "2024-01-03T00:00:00Z",
         },
     ]
+
     for system in demo_systems:
-        systems_db[system["id"]] = system
+        if not data_store.get_system(system["id"]):
+            data_store.create_system(system)
 
 
-# Initialize demo systems on module load
-init_demo_systems()
+# Initialize demo systems if in demo mode
+if DEMO_MODE:
+    init_demo_systems()
 
 
 @router.post("/", response_model=SystemResponse)
 async def create_system(system: SystemCreate):
     """Create a new monitored system."""
     system_id = str(uuid.uuid4())
-    
+
     system_data = {
         "id": system_id,
         "name": system.name,
         "system_type": system.system_type,
         "serial_number": system.serial_number,
         "model": system.model,
-        "metadata": system.metadata,
+        "metadata": system.metadata or {},
         "status": "active",
         "health_score": 100.0,
         "discovered_schema": {},
         "confirmed_fields": {},
+        "is_demo": False,
         "created_at": datetime.utcnow().isoformat(),
     }
-    
-    systems_db[system_id] = system_data
-    
-    return SystemResponse(**system_data)
+
+    created_system = data_store.create_system(system_data)
+
+    return SystemResponse(**created_system)
 
 
 @router.get("/", response_model=List[SystemResponse])
 async def list_systems(
     status: Optional[str] = None,
     system_type: Optional[str] = None,
+    include_demo: bool = Query(default=True, description="Include demo systems in results"),
 ):
     """List all monitored systems."""
-    systems = list(systems_db.values())
-    
+    systems = data_store.list_systems(include_demo=include_demo)
+
     if status:
-        systems = [s for s in systems if s["status"] == status]
+        systems = [s for s in systems if s.get("status") == status]
     if system_type:
-        systems = [s for s in systems if s["system_type"] == system_type]
-    
+        systems = [s for s in systems if s.get("system_type") == system_type]
+
     return [SystemResponse(**s) for s in systems]
 
 
 @router.get("/{system_id}", response_model=Dict[str, Any])
 async def get_system(system_id: str):
     """Get detailed information about a system."""
-    if system_id not in systems_db:
+    system = data_store.get_system(system_id)
+    if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    
-    return systems_db[system_id]
+
+    return system
+
+
+@router.delete("/{system_id}")
+async def delete_system(system_id: str):
+    """Delete a system and all its data."""
+    success = data_store.delete_system(system_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    return {"status": "deleted", "system_id": system_id}
 
 
 @router.post("/{system_id}/ingest")
@@ -175,13 +193,14 @@ async def ingest_data(
 ):
     """
     Ingest data file and perform autonomous schema discovery.
-    
+
     This endpoint implements the Zero-Knowledge Ingestion approach.
     The system will analyze the uploaded data "blind" and learn its structure.
     """
-    if system_id not in systems_db:
+    system = data_store.get_system(system_id)
+    if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    
+
     try:
         result = await ingestion_service.ingest_file(
             file_content=file.file,
@@ -189,21 +208,30 @@ async def ingest_data(
             system_id=system_id,
             source_name=source_name,
         )
-        
-        # Store discovered schema
-        systems_db[system_id]["discovered_schema"] = result.get("discovered_fields", {})
-        
-        # Create data source record
+
+        # Store discovered schema in system
+        data_store.update_system(system_id, {
+            "discovered_schema": result.get("discovered_fields", {}),
+            "status": "data_ingested"
+        })
+
+        # Store ingested data
         source_id = str(uuid.uuid4())
-        data_sources_db[source_id] = {
-            "id": source_id,
-            "system_id": system_id,
-            "name": source_name,
-            "discovery_status": "discovered",
-            "discovered_fields": result.get("discovered_fields", []),
-            "record_count": result.get("record_count", 0),
-        }
-        
+        data_store.store_ingested_data(
+            system_id=system_id,
+            source_id=source_id,
+            source_name=source_name,
+            records=result.get("sample_records", []),  # Store all parsed records
+            discovered_schema={
+                "fields": result.get("discovered_fields", []),
+                "relationships": result.get("relationships", []),
+            },
+            metadata={
+                "filename": file.filename,
+                "content_type": file.content_type,
+            }
+        )
+
         return {
             "status": "success",
             "source_id": source_id,
@@ -211,9 +239,10 @@ async def ingest_data(
             "discovered_fields": result.get("discovered_fields"),
             "relationships": result.get("relationships"),
             "confirmation_requests": result.get("confirmation_requests"),
+            "sample_records": result.get("sample_records", [])[:5],
             "message": "Data ingested. Please review the discovered schema and confirm field mappings.",
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -225,15 +254,16 @@ async def confirm_fields(
 ):
     """
     Human-in-the-Loop field confirmation.
-    
+
     Engineers can confirm or correct the AI's schema inference.
     This builds trust and ensures accuracy.
     """
-    if system_id not in systems_db:
+    system = data_store.get_system(system_id)
+    if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    
-    confirmed = systems_db[system_id].get("confirmed_fields", {})
-    
+
+    confirmed = system.get("confirmed_fields", {})
+
     for conf in confirmations:
         if conf.is_correct:
             confirmed[conf.field_name] = {
@@ -252,13 +282,72 @@ async def confirm_fields(
                 "corrected": True,
                 "confirmed_at": datetime.utcnow().isoformat(),
             }
-    
-    systems_db[system_id]["confirmed_fields"] = confirmed
-    
+
+    data_store.update_system(system_id, {
+        "confirmed_fields": confirmed,
+        "status": "configured"
+    })
+
     return {
         "status": "success",
         "confirmed_count": len(confirmations),
         "message": "Field mappings updated. The system will use these confirmations for future analysis.",
+    }
+
+
+@router.get("/{system_id}/data")
+async def get_system_data(
+    system_id: str,
+    source_id: Optional[str] = None,
+    limit: int = Query(default=100, le=10000),
+    offset: int = Query(default=0, ge=0),
+):
+    """Get ingested data records for a system."""
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    records = data_store.get_ingested_records(system_id, source_id, limit, offset)
+
+    return {
+        "system_id": system_id,
+        "source_id": source_id,
+        "records": records,
+        "count": len(records),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/{system_id}/statistics")
+async def get_system_statistics(system_id: str):
+    """Get statistics about a system's ingested data."""
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    stats = data_store.get_system_statistics(system_id)
+
+    return {
+        "system_id": system_id,
+        "system_name": system.get("name"),
+        **stats
+    }
+
+
+@router.get("/{system_id}/sources")
+async def get_data_sources(system_id: str):
+    """Get all data sources for a system."""
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    sources = data_store.get_data_sources(system_id)
+
+    return {
+        "system_id": system_id,
+        "sources": sources,
+        "count": len(sources),
     }
 
 
@@ -269,100 +358,143 @@ async def analyze_system(
 ):
     """
     Run comprehensive analysis on a system.
-    
+
     This triggers the full agent workforce to analyze the system:
     - Anomaly detection
     - Root cause analysis
     - Blind spot detection
     - Engineering margin calculation
     """
-    if system_id not in systems_db:
+    system = data_store.get_system(system_id)
+    if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    
-    # In production, this would fetch real data from TimescaleDB/InfluxDB
-    # For now, return mock analysis
-    
-    analysis_result = {
-        "system_id": system_id,
-        "timestamp": datetime.utcnow().isoformat(),
-        "health_score": 87.5,
-        "anomalies": [
-            {
-                "id": str(uuid.uuid4()),
-                "type": "behavioral_deviation",
-                "severity": "medium",
-                "title": "Motor current draw increased",
-                "description": "Motor A is drawing 12% more current than baseline under similar load conditions.",
-                "affected_fields": ["motor_a_current", "motor_a_load"],
-                "natural_language_explanation": (
-                    "Motor A is consuming more power than expected. This started 3 days ago, "
-                    "coinciding with firmware update v2.3.1. The increased current draw is consistent "
-                    "across all operating conditions, suggesting a software-related cause rather than "
-                    "mechanical wear."
-                ),
-                "recommendations": [
-                    {
-                        "type": "investigation",
-                        "priority": "high",
-                        "action": "Review firmware v2.3.1 changes to motor control parameters",
-                    },
-                    {
-                        "type": "software_rollback",
-                        "priority": "medium",
-                        "action": "Consider rolling back to v2.3.0 if issue persists",
-                    },
-                ],
-                "impact_score": 72.5,
+
+    # Get real data if available
+    records = data_store.get_ingested_records(system_id, limit=10000)
+    sources = data_store.get_data_sources(system_id)
+
+    # If we have real data, analyze it
+    if records:
+        import pandas as pd
+        df = pd.DataFrame(records)
+
+        # Calculate actual statistics
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+
+        anomalies = []
+        engineering_margins = []
+        blind_spots = []
+
+        # Simple anomaly detection on real data
+        for col in numeric_cols[:5]:  # Limit to first 5 numeric columns
+            mean = df[col].mean()
+            std = df[col].std()
+
+            if std > 0:
+                # Find outliers (values > 2 std from mean)
+                outliers = df[abs(df[col] - mean) > 2 * std]
+                if len(outliers) > 0:
+                    anomalies.append({
+                        "id": str(uuid.uuid4()),
+                        "type": "statistical_outlier",
+                        "severity": "medium" if len(outliers) < len(df) * 0.05 else "high",
+                        "title": f"Outliers detected in {col}",
+                        "description": f"Found {len(outliers)} values that deviate significantly from the mean ({mean:.2f})",
+                        "affected_fields": [col],
+                        "natural_language_explanation": (
+                            f"The field '{col}' has {len(outliers)} data points that are more than "
+                            f"2 standard deviations from the mean value of {mean:.2f}. "
+                            f"This may indicate sensor errors, unusual operating conditions, or actual anomalies."
+                        ),
+                        "recommendations": [
+                            {
+                                "type": "investigation",
+                                "priority": "high",
+                                "action": f"Review the {len(outliers)} outlier records for {col}",
+                            },
+                        ],
+                        "impact_score": min(100, len(outliers) / len(df) * 1000),
+                    })
+
+                # Calculate engineering margins
+                current_max = df[col].max()
+                if mean > 0:
+                    design_limit = mean + 4 * std  # Assume 4-sigma design limit
+                    margin = (design_limit - current_max) / design_limit * 100
+                    engineering_margins.append({
+                        "component": col,
+                        "parameter": col,
+                        "current_value": float(current_max),
+                        "design_limit": float(design_limit),
+                        "margin_percentage": float(margin),
+                        "trend": "stable",
+                        "safety_critical": False,
+                    })
+
+        # Identify blind spots (missing data)
+        missing_cols = [col for col in df.columns if df[col].isna().sum() > len(df) * 0.1]
+        if missing_cols:
+            blind_spots.append({
+                "title": "Missing data detected",
+                "description": f"Fields {', '.join(missing_cols)} have more than 10% missing values",
+                "recommended_sensor": None,
+                "diagnostic_coverage_improvement": 15,
+            })
+
+        # Calculate health score based on anomalies
+        health_score = 100 - (len(anomalies) * 5)
+        health_score = max(50, min(100, health_score))
+
+        analysis_result = {
+            "system_id": system_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "health_score": health_score,
+            "data_analyzed": {
+                "record_count": len(records),
+                "source_count": len(sources),
+                "field_count": len(df.columns),
             },
-        ],
-        "engineering_margins": [
-            {
-                "component": "Battery Pack",
-                "parameter": "max_temperature",
-                "current_value": 38.5,
-                "design_limit": 45.0,
-                "margin_percentage": 14.4,
-                "trend": "stable",
-                "safety_critical": True,
+            "anomalies": anomalies,
+            "engineering_margins": engineering_margins,
+            "blind_spots": blind_spots,
+            "insights_summary": (
+                f"Analyzed {len(records)} records across {len(df.columns)} fields. "
+                f"Found {len(anomalies)} potential anomalies. "
+                f"System health score: {health_score}%."
+            ),
+        }
+
+    else:
+        # No data - return guidance
+        analysis_result = {
+            "system_id": system_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "health_score": None,
+            "data_analyzed": {
+                "record_count": 0,
+                "source_count": 0,
+                "field_count": 0,
             },
-            {
-                "component": "Motor A",
-                "parameter": "max_current",
-                "current_value": 28.5,
-                "design_limit": 35.0,
-                "margin_percentage": 18.6,
-                "trend": "degrading",
-                "projected_breach_date": "2024-03-15",
-                "safety_critical": False,
-            },
-        ],
-        "blind_spots": [
-            {
-                "title": "Missing vibration data",
-                "description": (
-                    "We cannot fully diagnose the recurring motor anomalies because we lack "
-                    "high-frequency vibration data. A 3-axis accelerometer on the motor mount "
-                    "would enable early bearing wear detection."
-                ),
-                "recommended_sensor": {
-                    "type": "Accelerometer",
-                    "specification": "3-axis, 1kHz sampling",
-                    "estimated_cost": 150,
-                },
-                "diagnostic_coverage_improvement": 25,
-            },
-        ],
-        "insights_summary": (
-            "System is operating at 87.5% health. Primary concern is the increased motor current draw "
-            "that correlates with the recent firmware update. Engineering margins are adequate but "
-            "motor current margin is trending downward. Consider adding vibration sensors for the "
-            "next hardware revision to improve diagnostic coverage."
-        ),
-    }
-    
+            "anomalies": [],
+            "engineering_margins": [],
+            "blind_spots": [
+                {
+                    "title": "No data ingested",
+                    "description": "Upload telemetry data to enable analysis",
+                    "recommended_sensor": None,
+                    "diagnostic_coverage_improvement": 100,
+                }
+            ],
+            "insights_summary": (
+                "No data has been ingested for this system yet. "
+                "Upload telemetry files to enable anomaly detection and analysis."
+            ),
+        }
+
     # Update system health score
-    systems_db[system_id]["health_score"] = analysis_result["health_score"]
-    
+    if analysis_result.get("health_score"):
+        data_store.update_system(system_id, {"health_score": analysis_result["health_score"]})
+
     return analysis_result
 
 
@@ -373,64 +505,93 @@ async def query_system(
 ):
     """
     Conversational query interface.
-    
-    Engineers can ask questions in natural language:
-    - "Why is the motor drawing more current?"
-    - "Show me all vehicles with battery temp > 40C"
-    - "What changed in the last week?"
+
+    Engineers can ask questions in natural language about their data.
     """
-    if system_id not in systems_db:
+    system = data_store.get_system(system_id)
+    if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    
+
     query = request.query.lower()
-    
-    # Simple query parsing (would use NLP/LLM in production)
-    if "why" in query:
-        response = {
-            "type": "explanation",
+    records = data_store.get_ingested_records(system_id, limit=1000)
+
+    if not records:
+        return {
+            "type": "no_data",
             "query": request.query,
-            "response": (
-                "Based on my analysis, the increased motor current draw is most likely caused by "
-                "firmware update v2.3.1, which was deployed 3 days ago. The update modified the "
-                "motor control PID parameters, resulting in a more aggressive response curve. "
-                "This increases power consumption but may improve response time."
-            ),
-            "evidence": [
-                "Current increase started exactly when firmware was deployed",
-                "Pattern is consistent across all operating conditions",
-                "No mechanical indicators of degradation",
-            ],
-            "related_data": {
-                "firmware_version": "v2.3.1",
-                "deployment_date": "2024-01-10",
-                "average_current_increase": "12%",
-            },
+            "response": "No data has been ingested for this system yet. Please upload telemetry data first.",
         }
-    elif "show" in query or "find" in query:
+
+    import pandas as pd
+    df = pd.DataFrame(records)
+
+    # Parse query and provide data-driven response
+    if "show" in query or "find" in query or "get" in query:
+        # Data query
         response = {
             "type": "data_query",
             "query": request.query,
-            "response": "Found 23 records matching your criteria.",
+            "response": f"Found {len(df)} records in the system.",
             "summary": {
-                "total_matches": 23,
-                "time_range": "Last 7 days",
+                "total_records": len(df),
+                "fields": list(df.columns),
+                "time_range": "All available data",
             },
-            "sample_results": [
-                {"timestamp": "2024-01-12T14:30:00Z", "value": 42.3},
-                {"timestamp": "2024-01-12T15:45:00Z", "value": 41.8},
-            ],
+            "sample_results": df.head(5).to_dict('records'),
         }
+
+    elif "average" in query or "mean" in query:
+        # Statistical query
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        means = {col: float(df[col].mean()) for col in numeric_cols}
+        response = {
+            "type": "statistics",
+            "query": request.query,
+            "response": "Here are the average values for numeric fields:",
+            "data": means,
+        }
+
+    elif "max" in query or "maximum" in query:
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        maxes = {col: float(df[col].max()) for col in numeric_cols}
+        response = {
+            "type": "statistics",
+            "query": request.query,
+            "response": "Here are the maximum values for numeric fields:",
+            "data": maxes,
+        }
+
+    elif "min" in query or "minimum" in query:
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        mins = {col: float(df[col].min()) for col in numeric_cols}
+        response = {
+            "type": "statistics",
+            "query": request.query,
+            "response": "Here are the minimum values for numeric fields:",
+            "data": mins,
+        }
+
     else:
+        # General query
+        stats = data_store.get_system_statistics(system_id)
         response = {
             "type": "general",
             "query": request.query,
             "response": (
-                f"System '{systems_db[system_id]['name']}' is currently operating at "
-                f"{systems_db[system_id]['health_score']}% health. "
-                "Ask me specific questions like 'Why is X happening?' or 'Show me Y data'."
+                f"System '{system['name']}' has {stats['total_records']} records "
+                f"with {stats['field_count']} fields. "
+                "You can ask specific questions like 'Show me the data', "
+                "'What is the average temperature?', or 'Find maximum values'."
             ),
+            "system_info": {
+                "name": system["name"],
+                "type": system["system_type"],
+                "status": system.get("status", "active"),
+                "health_score": system.get("health_score"),
+            },
+            "data_summary": stats,
         }
-    
+
     return response
 
 
@@ -438,50 +599,78 @@ async def query_system(
 async def get_impact_radar(system_id: str):
     """
     Get the 80/20 Impact Radar view.
-    
-    Returns the prioritized list of issues, focusing on the 20% 
+
+    Returns the prioritized list of issues, focusing on the 20%
     of anomalies causing 80% of problems.
     """
-    if system_id not in systems_db:
+    system = data_store.get_system(system_id)
+    if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    
+
+    records = data_store.get_ingested_records(system_id, limit=10000)
+
+    if not records:
+        return {
+            "system_id": system_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_anomalies": 0,
+            "high_impact_anomalies": 0,
+            "impact_distribution": None,
+            "prioritized_issues": [],
+            "message": "No data ingested. Upload data to see impact analysis.",
+        }
+
+    import pandas as pd
+    df = pd.DataFrame(records)
+    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+
+    # Analyze each field for issues
+    issues = []
+    for col in numeric_cols:
+        mean = df[col].mean()
+        std = df[col].std()
+
+        if std > 0:
+            outlier_pct = len(df[abs(df[col] - mean) > 2 * std]) / len(df) * 100
+            if outlier_pct > 1:  # More than 1% outliers
+                issues.append({
+                    "title": f"{col} outliers",
+                    "impact_score": min(100, outlier_pct * 10),
+                    "affected_percentage": outlier_pct,
+                    "recommended_action": f"Investigate {col} anomalies",
+                })
+
+    # Sort by impact
+    issues.sort(key=lambda x: x["impact_score"], reverse=True)
+
+    # Calculate 80/20 distribution
+    total_impact = sum(i["impact_score"] for i in issues)
+    cumulative = 0
+    high_impact_count = 0
+
+    for issue in issues:
+        cumulative += issue["impact_score"]
+        high_impact_count += 1
+        if cumulative >= total_impact * 0.8:
+            break
+
     return {
         "system_id": system_id,
         "timestamp": datetime.utcnow().isoformat(),
-        "total_anomalies": 12,
-        "high_impact_anomalies": 3,
+        "total_anomalies": len(issues),
+        "high_impact_anomalies": high_impact_count,
         "impact_distribution": {
             "top_20_percent": {
-                "anomaly_count": 3,
-                "impact_percentage": 78,
+                "anomaly_count": high_impact_count,
+                "impact_percentage": 80,
             },
             "remaining_80_percent": {
-                "anomaly_count": 9,
-                "impact_percentage": 22,
+                "anomaly_count": len(issues) - high_impact_count,
+                "impact_percentage": 20,
             },
-        },
+        } if issues else None,
         "prioritized_issues": [
-            {
-                "rank": 1,
-                "title": "Motor A Current Deviation",
-                "impact_score": 72.5,
-                "affected_percentage": 34,
-                "recommended_action": "Review firmware update",
-            },
-            {
-                "rank": 2,
-                "title": "Battery Thermal Margin Decreasing",
-                "impact_score": 65.0,
-                "affected_percentage": 28,
-                "recommended_action": "Monitor closely",
-            },
-            {
-                "rank": 3,
-                "title": "Communication Latency Spikes",
-                "impact_score": 48.0,
-                "affected_percentage": 16,
-                "recommended_action": "Network investigation",
-            },
+            {"rank": i + 1, **issue} for i, issue in enumerate(issues[:10])
         ],
     }
 
@@ -490,56 +679,81 @@ async def get_impact_radar(system_id: str):
 async def get_next_gen_specs(system_id: str):
     """
     Get AI-generated specifications for the next product generation.
-    
+
     Based on blind spot analysis and operational data, generates
     recommendations for sensors, data architecture, and capabilities.
     """
-    if system_id not in systems_db:
+    system = data_store.get_system(system_id)
+    if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    
+
+    records = data_store.get_ingested_records(system_id, limit=1000)
+    stats = data_store.get_system_statistics(system_id)
+
+    # Generate recommendations based on actual data analysis
+    new_sensors = []
+    data_arch_recommendations = {}
+
+    if records:
+        import pandas as pd
+        df = pd.DataFrame(records)
+
+        # Analyze data patterns for recommendations
+        for col in df.columns:
+            if df[col].dtype in ['int64', 'float64']:
+                # Check sampling adequacy
+                if len(df) < 1000:
+                    data_arch_recommendations[col] = "Increase sampling rate"
+
+        # Check for missing sensor types based on system type
+        system_type = system.get("system_type", "")
+        if system_type == "vehicle":
+            if not any("vibration" in col.lower() for col in df.columns):
+                new_sensors.append({
+                    "type": "3-axis Accelerometer",
+                    "location": "Suspension/Motor mount",
+                    "sampling_rate": "1kHz",
+                    "rationale": "Enable vibration analysis for predictive maintenance",
+                    "estimated_cost": 150,
+                    "diagnostic_value": "High",
+                })
+        elif system_type == "robot":
+            if not any("torque" in col.lower() for col in df.columns):
+                new_sensors.append({
+                    "type": "Torque Sensor",
+                    "location": "Joint actuators",
+                    "sampling_rate": "100Hz",
+                    "rationale": "Monitor joint loads for wear prediction",
+                    "estimated_cost": 200,
+                    "diagnostic_value": "High",
+                })
+
     return {
         "system_id": system_id,
         "generated_at": datetime.utcnow().isoformat(),
-        "current_generation": systems_db[system_id].get("model", "Current"),
+        "current_generation": system.get("model", "Current"),
+        "data_analyzed": stats,
         "recommended_improvements": {
-            "new_sensors": [
+            "new_sensors": new_sensors or [
                 {
-                    "type": "3-axis Accelerometer",
-                    "location": "Motor mount",
-                    "sampling_rate": "1kHz",
-                    "rationale": "Enable vibration analysis for early bearing wear detection",
-                    "estimated_cost": 150,
-                    "diagnostic_value": "High",
-                },
-                {
-                    "type": "Humidity Sensor",
-                    "location": "Electronics bay",
-                    "sampling_rate": "1Hz",
-                    "rationale": "Correlate environmental conditions with electrical anomalies",
-                    "estimated_cost": 25,
-                    "diagnostic_value": "Medium",
-                },
+                    "type": "Additional sensors recommended after data analysis",
+                    "location": "TBD",
+                    "sampling_rate": "TBD",
+                    "rationale": "Upload more data for specific recommendations",
+                    "estimated_cost": 0,
+                    "diagnostic_value": "TBD",
+                }
             ],
-            "data_architecture": {
-                "recommended_sampling_rates": {
-                    "motor_current": "100Hz (up from 10Hz)",
-                    "battery_voltage": "50Hz (up from 1Hz)",
-                    "temperature": "1Hz (unchanged)",
-                },
-                "new_derived_metrics": [
-                    "Motor efficiency (calculated from current/torque)",
-                    "Battery impedance (calculated from voltage/current dynamics)",
-                ],
-                "storage_estimate": "2.5GB/day (up from 500MB/day)",
+            "data_architecture": data_arch_recommendations or {
+                "recommendation": "Upload telemetry data for architecture recommendations"
             },
             "connectivity": {
-                "recommendation": "Add real-time streaming capability",
-                "rationale": "Enable immediate anomaly detection for safety-critical parameters",
+                "recommendation": "Add real-time streaming for critical parameters" if records else "TBD",
             },
         },
         "expected_benefits": {
-            "diagnostic_coverage": "+35%",
-            "early_warning_capability": "+50%",
-            "false_positive_reduction": "-25%",
+            "diagnostic_coverage": "+35%" if records else "TBD",
+            "early_warning_capability": "+50%" if records else "TBD",
+            "false_positive_reduction": "-25%" if records else "TBD",
         },
     }

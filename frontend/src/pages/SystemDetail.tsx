@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Upload,
@@ -11,15 +11,38 @@ import {
   ChevronRight,
   RefreshCw,
   Loader2,
-  CheckCircle
+  CheckCircle,
+  Database,
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
 import type { System, AnalysisResult } from '../types';
 
-// Mock analysis data per system type
-const mockAnalysisData: Record<string, {
-  health_score: number;
+interface DataStatistics {
+  total_records: number;
+  total_sources: number;
+  field_count: number;
+  fields: Array<{
+    name: string;
+    type: string;
+    null_count: number;
+    unique_count: number;
+    min?: number;
+    max?: number;
+    mean?: number;
+    std?: number;
+  }>;
+}
+
+interface AnalysisData {
+  health_score: number | null;
+  data_analyzed?: {
+    record_count: number;
+    source_count: number;
+    field_count: number;
+  };
   anomalies: Array<{
     id: string;
     type: string;
@@ -42,158 +65,11 @@ const mockAnalysisData: Record<string, {
   blind_spots: Array<{
     title: string;
     description: string;
-    recommended_sensor: { type: string; specification: string; estimated_cost: number };
+    recommended_sensor?: { type: string; specification: string; estimated_cost: number } | null;
     diagnostic_coverage_improvement: number;
   }>;
-}> = {
-  '1': {
-    health_score: 87.5,
-    anomalies: [
-      {
-        id: '1',
-        type: 'behavioral_deviation',
-        severity: 'medium',
-        title: 'Motor current draw increased',
-        description: 'Motor A is drawing 12% more current than baseline under similar load conditions.',
-        natural_language_explanation:
-          'Motor A is consuming more power than expected. This started 3 days ago, ' +
-          'coinciding with firmware update v2.3.1. The increased current draw is consistent ' +
-          'across all operating conditions, suggesting a software-related cause rather than ' +
-          'mechanical wear.',
-        recommendations: [
-          {
-            type: 'investigation',
-            priority: 'high',
-            action: 'Review firmware v2.3.1 changes to motor control parameters',
-          },
-        ],
-        impact_score: 72.5,
-      },
-    ],
-    engineering_margins: [
-      {
-        component: 'Battery Pack',
-        parameter: 'max_temperature',
-        current_value: 38.5,
-        design_limit: 45.0,
-        margin_percentage: 14.4,
-        trend: 'stable',
-        safety_critical: true,
-      },
-      {
-        component: 'Motor A',
-        parameter: 'max_current',
-        current_value: 28.5,
-        design_limit: 35.0,
-        margin_percentage: 18.6,
-        trend: 'degrading',
-        safety_critical: false,
-      },
-    ],
-    blind_spots: [
-      {
-        title: 'Missing vibration data',
-        description: 'We cannot fully diagnose the recurring motor anomalies because we lack high-frequency vibration data.',
-        recommended_sensor: {
-          type: 'Accelerometer',
-          specification: '3-axis, 1kHz sampling',
-          estimated_cost: 150,
-        },
-        diagnostic_coverage_improvement: 25,
-      },
-    ],
-  },
-  '2': {
-    health_score: 94.2,
-    anomalies: [],
-    engineering_margins: [
-      {
-        component: 'Joint 1 Servo',
-        parameter: 'max_torque',
-        current_value: 42.0,
-        design_limit: 60.0,
-        margin_percentage: 30.0,
-        trend: 'stable',
-        safety_critical: true,
-      },
-      {
-        component: 'End Effector',
-        parameter: 'grip_force',
-        current_value: 18.5,
-        design_limit: 25.0,
-        margin_percentage: 26.0,
-        trend: 'stable',
-        safety_critical: false,
-      },
-      {
-        component: 'Control Unit',
-        parameter: 'cpu_temperature',
-        current_value: 52.0,
-        design_limit: 85.0,
-        margin_percentage: 38.8,
-        trend: 'stable',
-        safety_critical: false,
-      },
-    ],
-    blind_spots: [
-      {
-        title: 'Missing force-torque sensor',
-        description: 'Adding a 6-axis force-torque sensor would enable collision detection and compliant motion control.',
-        recommended_sensor: {
-          type: 'Force-Torque Sensor',
-          specification: '6-axis, 1kHz',
-          estimated_cost: 2500,
-        },
-        diagnostic_coverage_improvement: 35,
-      },
-    ],
-  },
-  '3': {
-    health_score: 99.1,
-    anomalies: [],
-    engineering_margins: [
-      {
-        component: 'Magnet Coil',
-        parameter: 'helium_level',
-        current_value: 78.5,
-        design_limit: 100.0,
-        margin_percentage: 78.5,
-        trend: 'stable',
-        safety_critical: true,
-      },
-      {
-        component: 'RF Amplifier',
-        parameter: 'power_output',
-        current_value: 12.5,
-        design_limit: 15.0,
-        margin_percentage: 16.7,
-        trend: 'stable',
-        safety_critical: false,
-      },
-      {
-        component: 'Gradient Coil',
-        parameter: 'max_slew_rate',
-        current_value: 180.0,
-        design_limit: 200.0,
-        margin_percentage: 10.0,
-        trend: 'stable',
-        safety_critical: true,
-      },
-    ],
-    blind_spots: [
-      {
-        title: 'Patient motion tracking',
-        description: 'Adding real-time patient motion tracking would reduce scan artifacts and improve image quality.',
-        recommended_sensor: {
-          type: 'Optical Tracking Camera',
-          specification: '120fps, sub-mm accuracy',
-          estimated_cost: 8500,
-        },
-        diagnostic_coverage_improvement: 20,
-      },
-    ],
-  },
-};
+  insights_summary?: string;
+}
 
 function getSeverityColor(severity: string) {
   switch (severity) {
@@ -213,11 +89,14 @@ function getTrendIcon(trend: string) {
 
 export default function SystemDetail() {
   const { systemId } = useParams();
+  const navigate = useNavigate();
   const [system, setSystem] = useState<System | null>(null);
-  const [analysis, setAnalysis] = useState<typeof mockAnalysisData['1'] | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
+  const [statistics, setStatistics] = useState<DataStatistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSystem();
@@ -226,42 +105,32 @@ export default function SystemDetail() {
   const loadSystem = async () => {
     if (!systemId) return;
     setLoading(true);
+    setError(null);
     try {
       const data = await systemsApi.get(systemId);
       setSystem(data as System);
-      // Load analysis data (mock for now)
-      setAnalysis(mockAnalysisData[systemId] || mockAnalysisData['1']);
+
+      // Load statistics
+      try {
+        const statsResponse = await fetch(`/api/v1/systems/${systemId}/statistics`);
+        if (statsResponse.ok) {
+          const stats = await statsResponse.json();
+          setStatistics(stats);
+        }
+      } catch {
+        console.log('No statistics available');
+      }
+
+      // Initialize empty analysis
+      setAnalysis({
+        health_score: (data as System).health_score || null,
+        anomalies: [],
+        engineering_margins: [],
+        blind_spots: [],
+      });
     } catch (error) {
       console.error('Failed to load system:', error);
-      // Use mock data based on systemId
-      const mockSystems: Record<string, System> = {
-        '1': {
-          id: '1',
-          name: 'Fleet Vehicle Alpha',
-          system_type: 'vehicle',
-          status: 'anomaly_detected',
-          health_score: 87.5,
-          created_at: '2024-01-01T00:00:00Z',
-        },
-        '2': {
-          id: '2',
-          name: 'Robot Arm Unit 7',
-          system_type: 'robot',
-          status: 'active',
-          health_score: 94.2,
-          created_at: '2024-01-02T00:00:00Z',
-        },
-        '3': {
-          id: '3',
-          name: 'Medical Scanner MRI-3',
-          system_type: 'medical_device',
-          status: 'active',
-          health_score: 99.1,
-          created_at: '2024-01-03T00:00:00Z',
-        },
-      };
-      setSystem(mockSystems[systemId] || mockSystems['1']);
-      setAnalysis(mockAnalysisData[systemId] || mockAnalysisData['1']);
+      setError('Failed to load system. Make sure the backend is running.');
     } finally {
       setLoading(false);
     }
@@ -270,22 +139,25 @@ export default function SystemDetail() {
   const handleAnalyze = async () => {
     if (!systemId) return;
     setAnalyzing(true);
+    setError(null);
     try {
       const result = await systemsApi.analyze(systemId);
-      // Update analysis with API response
       if (result) {
         setAnalysis({
           health_score: result.health_score,
+          data_analyzed: result.data_analyzed,
           anomalies: result.anomalies || [],
           engineering_margins: result.engineering_margins || [],
           blind_spots: result.blind_spots || [],
+          insights_summary: result.insights_summary,
         });
-        if (system) {
+        if (system && result.health_score) {
           setSystem({ ...system, health_score: result.health_score });
         }
       }
     } catch (error) {
       console.error('Analysis failed:', error);
+      setError('Analysis failed. Make sure you have uploaded data first.');
     } finally {
       setAnalyzing(false);
     }
@@ -303,7 +175,19 @@ export default function SystemDetail() {
     );
   }
 
-  if (!system || !analysis) {
+  if (error && !system) {
+    return (
+      <div className="p-8 text-center">
+        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <p className="text-slate-400 mb-4">{error}</p>
+        <Link to="/systems" className="text-primary-400 hover:text-primary-300">
+          Back to Systems
+        </Link>
+      </div>
+    );
+  }
+
+  if (!system) {
     return (
       <div className="p-8 text-center">
         <p className="text-slate-400">System not found</p>
@@ -313,6 +197,8 @@ export default function SystemDetail() {
       </div>
     );
   }
+
+  const hasData = statistics && statistics.total_records > 0;
 
   return (
     <div className="p-8">
@@ -326,20 +212,13 @@ export default function SystemDetail() {
           <p className="text-slate-400 capitalize">{system.system_type.replace('_', ' ')} | ID: {systemId}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            to={`/systems/${systemId}/ingest`}
+          <button
+            onClick={() => navigate('/systems/new')}
             className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
           >
             <Upload className="w-4 h-4" />
-            Ingest Data
-          </Link>
-          <Link
-            to={`/systems/${systemId}/chat`}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
-          >
-            <MessageSquare className="w-4 h-4" />
-            Ask AI
-          </Link>
+            Upload Data
+          </button>
           <button
             onClick={handleAnalyze}
             disabled={analyzing}
@@ -351,24 +230,90 @@ export default function SystemDetail() {
         </div>
       </div>
 
-      {/* Health Score */}
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white mb-1">System Health</h2>
-            <p className="text-slate-400 text-sm">Overall system health score based on all parameters</p>
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400" />
+            <p className="text-sm text-slate-300">{error}</p>
           </div>
-          <div className="text-right">
-            <div className={clsx(
-              'text-5xl font-bold',
-              analysis.health_score >= 90 ? 'text-green-500' :
-              analysis.health_score >= 70 ? 'text-yellow-500' : 'text-red-500'
-            )}>
-              {analysis.health_score}%
+        </div>
+      )}
+
+      {/* No Data Banner */}
+      {!hasData && (
+        <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6">
+          <div className="flex items-start gap-4">
+            <Database className="w-8 h-8 text-yellow-400 flex-shrink-0" />
+            <div>
+              <h3 className="font-semibold text-yellow-400 mb-1">No Data Ingested</h3>
+              <p className="text-sm text-slate-300 mb-4">
+                Upload telemetry data to enable analysis, anomaly detection, and insights.
+                The AI will automatically discover your data schema and learn your system's patterns.
+              </p>
+              <button
+                onClick={() => navigate('/systems/new')}
+                className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black rounded-lg font-medium transition-colors"
+              >
+                Upload Data Now
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Data Statistics */}
+      {hasData && statistics && (
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <Database className="w-6 h-6 text-primary-400 mb-2" />
+            <p className="text-2xl font-bold text-white">{statistics.total_records.toLocaleString()}</p>
+            <p className="text-sm text-slate-400">Total Records</p>
+          </div>
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <FileText className="w-6 h-6 text-primary-400 mb-2" />
+            <p className="text-2xl font-bold text-white">{statistics.total_sources}</p>
+            <p className="text-sm text-slate-400">Data Sources</p>
+          </div>
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <Activity className="w-6 h-6 text-primary-400 mb-2" />
+            <p className="text-2xl font-bold text-white">{statistics.field_count}</p>
+            <p className="text-sm text-slate-400">Fields</p>
+          </div>
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <CheckCircle className="w-6 h-6 text-green-400 mb-2" />
+            <p className="text-2xl font-bold text-white">{system.status || 'Active'}</p>
+            <p className="text-sm text-slate-400">Status</p>
+          </div>
+        </div>
+      )}
+
+      {/* Health Score */}
+      {analysis && (
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white mb-1">System Health</h2>
+              <p className="text-slate-400 text-sm">
+                {analysis.insights_summary || 'Run analysis to get detailed health insights'}
+              </p>
+            </div>
+            <div className="text-right">
+              {analysis.health_score !== null ? (
+                <div className={clsx(
+                  'text-5xl font-bold',
+                  analysis.health_score >= 90 ? 'text-green-500' :
+                  analysis.health_score >= 70 ? 'text-yellow-500' : 'text-red-500'
+                )}>
+                  {analysis.health_score}%
+                </div>
+              ) : (
+                <div className="text-3xl text-slate-500">--</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-6">
         {/* Anomalies */}
@@ -378,11 +323,17 @@ export default function SystemDetail() {
             <h2 className="text-lg font-semibold text-white">Detected Anomalies</h2>
           </div>
           <div className="p-4 space-y-4">
-            {analysis.anomalies.length === 0 ? (
+            {!analysis || analysis.anomalies.length === 0 ? (
               <div className="text-center py-8">
                 <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                <p className="text-slate-300 font-medium">No Anomalies Detected</p>
-                <p className="text-slate-500 text-sm">System is operating within normal parameters</p>
+                <p className="text-slate-300 font-medium">
+                  {hasData ? 'No Anomalies Detected' : 'No Data to Analyze'}
+                </p>
+                <p className="text-slate-500 text-sm">
+                  {hasData
+                    ? 'System is operating within normal parameters'
+                    : 'Upload data and run analysis to detect anomalies'}
+                </p>
               </div>
             ) : (
               analysis.anomalies.map((anomaly) => (
@@ -400,7 +351,7 @@ export default function SystemDetail() {
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="font-medium text-white">{anomaly.title}</h3>
                     <span className="text-sm font-medium text-slate-400">
-                      Impact: {anomaly.impact_score}
+                      Impact: {anomaly.impact_score.toFixed(1)}
                     </span>
                   </div>
                   <p className="text-sm text-slate-300 mb-3">{anomaly.description}</p>
@@ -431,43 +382,57 @@ export default function SystemDetail() {
             <h2 className="text-lg font-semibold text-white">Engineering Margins</h2>
           </div>
           <div className="p-4 space-y-4">
-            {analysis.engineering_margins.map((margin, idx) => (
-              <div key={idx} className="p-4 bg-slate-900/50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h3 className="font-medium text-white">{margin.component}</h3>
-                    <p className="text-sm text-slate-400">{margin.parameter}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {getTrendIcon(margin.trend)}
-                    {margin.safety_critical && (
-                      <span className="px-2 py-0.5 text-xs bg-red-500/20 text-red-400 rounded">
-                        Safety Critical
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-slate-400">Current: {margin.current_value}</span>
-                    <span className="text-slate-400">Limit: {margin.design_limit}</span>
-                  </div>
-                  <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className={clsx(
-                        'h-full rounded-full',
-                        margin.margin_percentage < 15 ? 'bg-red-500' :
-                        margin.margin_percentage < 30 ? 'bg-yellow-500' : 'bg-green-500'
-                      )}
-                      style={{ width: getProgressWidth(margin.margin_percentage) }}
-                    />
-                  </div>
-                  <p className="text-sm text-slate-400 mt-1">
-                    {margin.margin_percentage.toFixed(1)}% margin remaining
-                  </p>
-                </div>
+            {!analysis || analysis.engineering_margins.length === 0 ? (
+              <div className="text-center py-8">
+                <Activity className="w-12 h-12 text-slate-500 mx-auto mb-3" />
+                <p className="text-slate-300 font-medium">
+                  {hasData ? 'No Margins Calculated' : 'No Data Available'}
+                </p>
+                <p className="text-slate-500 text-sm">
+                  {hasData
+                    ? 'Run analysis to calculate engineering margins'
+                    : 'Upload numeric data to see engineering margins'}
+                </p>
               </div>
-            ))}
+            ) : (
+              analysis.engineering_margins.map((margin, idx) => (
+                <div key={idx} className="p-4 bg-slate-900/50 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h3 className="font-medium text-white">{margin.component}</h3>
+                      <p className="text-sm text-slate-400">{margin.parameter}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {getTrendIcon(margin.trend)}
+                      {margin.safety_critical && (
+                        <span className="px-2 py-0.5 text-xs bg-red-500/20 text-red-400 rounded">
+                          Safety Critical
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-400">Current: {margin.current_value.toFixed(2)}</span>
+                      <span className="text-slate-400">Limit: {margin.design_limit.toFixed(2)}</span>
+                    </div>
+                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className={clsx(
+                          'h-full rounded-full',
+                          margin.margin_percentage < 15 ? 'bg-red-500' :
+                          margin.margin_percentage < 30 ? 'bg-yellow-500' : 'bg-green-500'
+                        )}
+                        style={{ width: getProgressWidth(margin.margin_percentage) }}
+                      />
+                    </div>
+                    <p className="text-sm text-slate-400 mt-1">
+                      {margin.margin_percentage.toFixed(1)}% margin remaining
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -475,30 +440,84 @@ export default function SystemDetail() {
         <div className="col-span-2 bg-slate-800 rounded-xl border border-slate-700">
           <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
             <Lightbulb className="w-5 h-5 text-yellow-500" />
-            <h2 className="text-lg font-semibold text-white">Blind Spots & Next-Gen Recommendations</h2>
+            <h2 className="text-lg font-semibold text-white">Blind Spots & Recommendations</h2>
           </div>
-          <div className="p-4 grid grid-cols-2 gap-4">
-            {analysis.blind_spots.map((spot, idx) => (
-              <div key={idx} className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
-                <h3 className="font-medium text-white mb-2">{spot.title}</h3>
-                <p className="text-sm text-slate-300 mb-4">{spot.description}</p>
-                <div className="p-3 bg-slate-800 rounded-lg">
-                  <h4 className="text-sm font-medium text-primary-400 mb-2">Recommended Sensor</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <span className="text-slate-400">Type:</span>
-                    <span className="text-white">{spot.recommended_sensor.type}</span>
-                    <span className="text-slate-400">Spec:</span>
-                    <span className="text-white">{spot.recommended_sensor.specification}</span>
-                    <span className="text-slate-400">Cost:</span>
-                    <span className="text-white">${spot.recommended_sensor.estimated_cost}</span>
-                    <span className="text-slate-400">Coverage Gain:</span>
-                    <span className="text-green-400">+{spot.diagnostic_coverage_improvement}%</span>
-                  </div>
-                </div>
+          <div className="p-4">
+            {!analysis || analysis.blind_spots.length === 0 ? (
+              <div className="text-center py-8">
+                <Lightbulb className="w-12 h-12 text-slate-500 mx-auto mb-3" />
+                <p className="text-slate-300 font-medium">No Blind Spots Identified</p>
+                <p className="text-slate-500 text-sm">
+                  Run analysis with uploaded data to identify data gaps and improvement opportunities
+                </p>
               </div>
-            ))}
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {analysis.blind_spots.map((spot, idx) => (
+                  <div key={idx} className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                    <h3 className="font-medium text-white mb-2">{spot.title}</h3>
+                    <p className="text-sm text-slate-300 mb-4">{spot.description}</p>
+                    {spot.recommended_sensor && (
+                      <div className="p-3 bg-slate-800 rounded-lg">
+                        <h4 className="text-sm font-medium text-primary-400 mb-2">Recommended Sensor</h4>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <span className="text-slate-400">Type:</span>
+                          <span className="text-white">{spot.recommended_sensor.type}</span>
+                          <span className="text-slate-400">Spec:</span>
+                          <span className="text-white">{spot.recommended_sensor.specification}</span>
+                          <span className="text-slate-400">Cost:</span>
+                          <span className="text-white">${spot.recommended_sensor.estimated_cost}</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-3 text-sm">
+                      <span className="text-slate-400">Coverage Gain: </span>
+                      <span className="text-green-400">+{spot.diagnostic_coverage_improvement}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Field Statistics */}
+        {hasData && statistics && statistics.fields.length > 0 && (
+          <div className="col-span-2 bg-slate-800 rounded-xl border border-slate-700">
+            <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+              <Database className="w-5 h-5 text-primary-500" />
+              <h2 className="text-lg font-semibold text-white">Field Statistics</h2>
+            </div>
+            <div className="p-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-400 border-b border-slate-700">
+                    <th className="pb-3 pr-4">Field Name</th>
+                    <th className="pb-3 pr-4">Type</th>
+                    <th className="pb-3 pr-4">Unique Values</th>
+                    <th className="pb-3 pr-4">Min</th>
+                    <th className="pb-3 pr-4">Max</th>
+                    <th className="pb-3 pr-4">Mean</th>
+                    <th className="pb-3">Std Dev</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statistics.fields.map((field, idx) => (
+                    <tr key={idx} className="border-b border-slate-700/50 text-slate-300">
+                      <td className="py-3 pr-4 font-mono text-white">{field.name}</td>
+                      <td className="py-3 pr-4">{field.type}</td>
+                      <td className="py-3 pr-4">{field.unique_count}</td>
+                      <td className="py-3 pr-4">{field.min !== undefined ? field.min.toFixed(2) : '-'}</td>
+                      <td className="py-3 pr-4">{field.max !== undefined ? field.max.toFixed(2) : '-'}</td>
+                      <td className="py-3 pr-4">{field.mean !== undefined ? field.mean.toFixed(2) : '-'}</td>
+                      <td className="py-3">{field.std !== undefined ? field.std.toFixed(2) : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -67,11 +67,11 @@ export interface EngineeringMargin {
 export interface BlindSpot {
   title: string;
   description: string;
-  recommended_sensor: {
+  recommended_sensor?: {
     type: string;
     specification: string;
     estimated_cost: number;
-  };
+  } | null;
   diagnostic_coverage_improvement: number;
 }
 
@@ -79,11 +79,16 @@ export interface BlindSpot {
 export interface AnalysisResult {
   system_id: string;
   timestamp: string;
-  health_score: number;
+  health_score: number | null;
+  data_analyzed?: {
+    record_count: number;
+    source_count: number;
+    field_count: number;
+  };
   anomalies: Anomaly[];
   engineering_margins: EngineeringMargin[];
   blind_spots: BlindSpot[];
-  insights_summary: string;
+  insights_summary?: string;
 }
 
 // Impact Radar Types

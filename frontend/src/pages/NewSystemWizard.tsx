@@ -18,7 +18,8 @@ import {
   Zap,
   Database,
   Brain,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -71,6 +72,7 @@ export default function NewSystemWizard() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Step 1: System details
   const [systemData, setSystemData] = useState<SystemFormData>({
@@ -125,10 +127,7 @@ export default function NewSystemWizard() {
         setCurrentStep(2);
       } catch (error) {
         console.error('Failed to create system:', error);
-        // Create mock system for demo
-        const mockId = String(Date.now());
-        setCreatedSystemId(mockId);
-        setCurrentStep(2);
+        setError('Failed to create system. Please make sure the backend is running.');
       } finally {
         setIsProcessing(false);
       }
@@ -146,12 +145,11 @@ export default function NewSystemWizard() {
         setDiscoveredFields(result.discovered_fields || []);
         setConfirmationRequests(result.confirmation_requests || []);
         setRecordCount(result.record_count || 0);
+        setError(null);
         setCurrentStep(3);
       } catch (error) {
         console.error('Failed to ingest data:', error);
-        // Use mock data for demo
-        simulateSchemaDiscovery();
-        setCurrentStep(3);
+        setError('Failed to process file. Please check the file format (CSV, JSON, JSONL, Parquet) and try again.');
       } finally {
         setIsProcessing(false);
       }
@@ -185,79 +183,6 @@ export default function NewSystemWizard() {
     }
   };
 
-  // Simulate schema discovery for demo
-  const simulateSchemaDiscovery = () => {
-    const mockFields: DiscoveredField[] = [
-      {
-        name: 'timestamp',
-        inferred_type: 'datetime',
-        physical_unit: null,
-        inferred_meaning: 'Event timestamp',
-        confidence: 0.98,
-        sample_values: ['2024-01-10T10:00:00Z', '2024-01-10T10:01:00Z', '2024-01-10T10:02:00Z'],
-      },
-      {
-        name: 'motor_current',
-        inferred_type: 'numeric',
-        physical_unit: 'amperes',
-        inferred_meaning: 'Motor electrical current draw',
-        confidence: 0.92,
-        sample_values: [12.5, 13.2, 11.8, 14.1, 12.9],
-      },
-      {
-        name: 'battery_temp',
-        inferred_type: 'numeric',
-        physical_unit: 'celsius',
-        inferred_meaning: 'Battery pack temperature',
-        confidence: 0.89,
-        sample_values: [35.2, 36.1, 34.8, 37.2, 35.9],
-      },
-      {
-        name: 'speed',
-        inferred_type: 'numeric',
-        physical_unit: 'km/h',
-        inferred_meaning: 'Vehicle speed',
-        confidence: 0.95,
-        sample_values: [45.0, 52.3, 48.7, 55.1, 50.2],
-      },
-      {
-        name: 'battery_soc',
-        inferred_type: 'numeric',
-        physical_unit: 'percent',
-        inferred_meaning: 'Battery state of charge',
-        confidence: 0.94,
-        sample_values: [85, 84, 83, 82, 81],
-      },
-    ];
-
-    const mockConfirmations: ConfirmationRequest[] = [
-      {
-        field_name: 'motor_current',
-        question: 'I detected "motor_current" as an electrical current measurement in Amperes. Is this correct?',
-        inferred_unit: 'amperes',
-        inferred_type: 'numeric',
-        sample_values: [12.5, 13.2, 11.8],
-      },
-      {
-        field_name: 'battery_temp',
-        question: 'I detected "battery_temp" as a temperature reading in Celsius. Is this correct?',
-        inferred_unit: 'celsius',
-        inferred_type: 'numeric',
-        sample_values: [35.2, 36.1, 34.8],
-      },
-      {
-        field_name: 'speed',
-        question: 'I detected "speed" as velocity in km/h. Is this correct?',
-        inferred_unit: 'km/h',
-        inferred_type: 'numeric',
-        sample_values: [45.0, 52.3, 48.7],
-      },
-    ];
-
-    setDiscoveredFields(mockFields);
-    setConfirmationRequests(mockConfirmations);
-    setRecordCount(15000);
-  };
 
   // File handling
   const handleFileDrop = useCallback((e: React.DragEvent) => {
@@ -726,6 +651,25 @@ export default function NewSystemWizard() {
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-8">
           {renderStepContent()}
         </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-400" />
+              <div>
+                <h3 className="font-medium text-red-400">Error</h3>
+                <p className="text-sm text-slate-300">{error}</p>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="ml-auto text-red-400 hover:text-red-300"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Navigation Buttons */}
         {currentStep < 5 && (

@@ -116,7 +116,7 @@ class IngestionService:
             "discovered_fields": [f.__dict__ for f in discovered_fields],
             "relationships": [r.__dict__ for r in relationships],
             "confirmation_requests": confirmation_requests,
-            "sample_records": records[:10] if records else [],
+            "sample_records": records,  # Return all records for storage
             "ingestion_timestamp": datetime.utcnow().isoformat(),
         }
 
