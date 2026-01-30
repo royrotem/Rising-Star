@@ -1,0 +1,318 @@
+"""
+SSE Streaming Analysis Endpoint
+
+Streams real-time progress events while running the analysis pipeline.
+This is an additive feature module — removing it does not affect the
+existing POST /systems/{id}/analyze endpoint.
+"""
+
+import asyncio
+import json
+import math
+import time
+from datetime import datetime
+from typing import Any, Dict, List
+
+import numpy as np
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+
+from ..services.data_store import data_store
+from ..services.analysis_engine import analysis_engine
+from ..services.ai_agents import orchestrator as ai_orchestrator
+from ..services.recommendation import build_data_profile, titles_overlap
+from .app_settings import get_ai_settings
+
+router = APIRouter(prefix="/systems", tags=["Streaming"])
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively convert numpy/pandas types to native Python for JSON."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(item) for item in obj]
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        val = float(obj)
+        return None if (math.isnan(val) or math.isinf(val)) else val
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return _sanitize_for_json(obj.tolist())
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
+
+
+def _anomaly_to_dict(a) -> Dict[str, Any]:
+    """Convert a rule-based Anomaly dataclass to API dict format."""
+    return {
+        "id": a.id,
+        "type": a.anomaly_type.value,
+        "severity": a.severity.value,
+        "title": a.title,
+        "description": a.description,
+        "affected_fields": [a.field_name] + a.related_fields,
+        "natural_language_explanation": a.natural_language_explanation,
+        "possible_causes": a.possible_causes,
+        "recommendations": a.recommendations,
+        "impact_score": a.impact_score,
+        "confidence": a.confidence,
+        "value": a.value,
+        "expected_range": a.expected_range,
+        "contributing_agents": ["Rule Engine"],
+        "web_references": [],
+        "agent_perspectives": [],
+    }
+
+
+def _merge_ai_anomalies(anomalies: List[Dict], ai_result: Dict | None) -> None:
+    """Merge AI-found anomalies into the existing list, deduplicating."""
+    if not ai_result or not ai_result.get("anomalies"):
+        return
+    for ai_anomaly in ai_result["anomalies"]:
+        is_duplicate = False
+        for existing in anomalies:
+            if titles_overlap(existing.get("title", ""), ai_anomaly.get("title", "")):
+                existing.setdefault("contributing_agents", []).extend(
+                    ai_anomaly.get("contributing_agents", [])
+                )
+                existing.setdefault("agent_perspectives", []).extend(
+                    ai_anomaly.get("agent_perspectives", [])
+                )
+                existing.setdefault("web_references", []).extend(
+                    ai_anomaly.get("web_references", [])
+                )
+                if ai_anomaly.get("confidence", 0) > existing.get("confidence", 0):
+                    existing["confidence"] = ai_anomaly["confidence"]
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            anomalies.append(ai_anomaly)
+
+
+def _sse_event(event: str, data: Any) -> str:
+    """Format an SSE event string."""
+    payload = json.dumps(_sanitize_for_json(data), default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+@router.get("/{system_id}/analyze-stream")
+async def analyze_system_stream(system_id: str):
+    """
+    Stream analysis progress via Server-Sent Events.
+
+    Events emitted:
+      - stage: { stage, message, progress }  — progress updates
+      - layer_complete: { layer, anomaly_count }  — a detection layer finished
+      - agent_complete: { agent, status, findings }  — an AI agent finished
+      - result: { ...full analysis result }  — final result
+      - error: { message }  — on failure
+    """
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    async def event_stream():
+        try:
+            t0 = time.time()
+
+            # ── Stage 1: Loading data ──
+            yield _sse_event("stage", {
+                "stage": "loading_data",
+                "message": "Loading system data...",
+                "progress": 5,
+            })
+
+            records = data_store.get_ingested_records(system_id, limit=50000)
+            sources = data_store.get_data_sources(system_id)
+            discovered_schema = system.get("discovered_schema", [])
+            system_type = system.get("system_type", "industrial")
+            system_name = system.get("name", "Unknown System")
+
+            if not records:
+                yield _sse_event("error", {
+                    "message": "No data ingested. Upload data before running analysis.",
+                })
+                return
+
+            yield _sse_event("stage", {
+                "stage": "data_loaded",
+                "message": f"Loaded {len(records)} records from {len(sources)} sources",
+                "progress": 10,
+            })
+
+            # Small delay so the client can render
+            await asyncio.sleep(0.05)
+
+            # ── Stage 2: Rule-based analysis engine (6 layers) ──
+            yield _sse_event("stage", {
+                "stage": "rule_engine",
+                "message": "Running 6-layer anomaly detection engine...",
+                "progress": 15,
+            })
+
+            result = await analysis_engine.analyze(
+                system_id=system_id,
+                system_type=system_type,
+                records=records,
+                discovered_schema=discovered_schema,
+                metadata=system.get("metadata", {}),
+            )
+
+            anomalies = [_anomaly_to_dict(a) for a in result.anomalies]
+
+            # Report layer results
+            layer_names = [
+                "Statistical Outlier Detection",
+                "Threshold-Based Detection",
+                "Trend Analysis",
+                "Correlation Analysis",
+                "Pattern Detection",
+                "Rate of Change Analysis",
+            ]
+            for i, layer_name in enumerate(layer_names):
+                yield _sse_event("layer_complete", {
+                    "layer": layer_name,
+                    "layer_index": i + 1,
+                    "total_layers": 6,
+                    "anomaly_count": len(anomalies),
+                })
+                # Small stagger for visual effect
+                await asyncio.sleep(0.05)
+
+            yield _sse_event("stage", {
+                "stage": "rule_engine_complete",
+                "message": f"Rule engine found {len(anomalies)} anomalies",
+                "progress": 50,
+            })
+
+            # ── Stage 3: AI multi-agent analysis ──
+            ai_cfg = get_ai_settings()
+            ai_result = None
+            agent_statuses: List[Dict] = []
+
+            if ai_cfg.get("enable_ai_agents", True):
+                yield _sse_event("stage", {
+                    "stage": "ai_agents",
+                    "message": "Launching AI agent swarm (5 specialized agents)...",
+                    "progress": 55,
+                })
+
+                try:
+                    data_profile = build_data_profile(records, discovered_schema)
+                    metadata_context = ""
+                    meta = system.get("metadata", {})
+                    if meta.get("description"):
+                        metadata_context = meta["description"]
+
+                    ai_result = await ai_orchestrator.run_analysis(
+                        system_id=system_id,
+                        system_type=system_type,
+                        system_name=system_name,
+                        data_profile=data_profile,
+                        metadata_context=metadata_context,
+                        enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
+                    )
+
+                    # Emit per-agent statuses
+                    ai_agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
+                    for idx, st in enumerate(ai_agent_statuses):
+                        yield _sse_event("agent_complete", {
+                            "agent": st.get("agent", f"Agent {idx+1}"),
+                            "status": st.get("status", "unknown"),
+                            "findings": st.get("findings", 0),
+                            "perspective": st.get("perspective", ""),
+                        })
+                        await asyncio.sleep(0.05)
+
+                    agent_statuses = ai_agent_statuses
+
+                    _merge_ai_anomalies(anomalies, ai_result)
+
+                    yield _sse_event("stage", {
+                        "stage": "ai_agents_complete",
+                        "message": f"AI agents contributed {ai_result.get('total_findings_raw', 0)} raw findings",
+                        "progress": 85,
+                    })
+
+                except Exception as e:
+                    yield _sse_event("stage", {
+                        "stage": "ai_agents_error",
+                        "message": f"AI agents failed (using rule-based only): {e}",
+                        "progress": 85,
+                    })
+                    agent_statuses = [{"agent": "AI Orchestrator", "status": "error", "error": str(e)}]
+            else:
+                yield _sse_event("stage", {
+                    "stage": "ai_agents_skipped",
+                    "message": "AI agents disabled — using rule-based analysis only",
+                    "progress": 85,
+                })
+                agent_statuses = [{"agent": "AI Orchestrator", "status": "disabled", "findings": 0}]
+
+            # ── Stage 4: Finalizing ──
+            yield _sse_event("stage", {
+                "stage": "finalizing",
+                "message": "Building final report...",
+                "progress": 90,
+            })
+
+            anomalies.sort(key=lambda a: a.get("impact_score", 0), reverse=True)
+
+            analysis_result = {
+                "system_id": system_id,
+                "timestamp": result.analyzed_at,
+                "health_score": result.health_score,
+                "data_analyzed": {
+                    "record_count": len(records),
+                    "source_count": len(sources),
+                    "field_count": (
+                        len(set(f.get("name", "") for f in discovered_schema))
+                        if discovered_schema else 0
+                    ),
+                },
+                "anomalies": anomalies,
+                "engineering_margins": result.engineering_margins,
+                "blind_spots": result.blind_spots,
+                "correlation_analysis": result.correlation_matrix,
+                "trend_analysis": result.trend_analysis,
+                "insights": result.insights,
+                "insights_summary": result.summary,
+                "recommendations": result.recommendations,
+                "ai_analysis": {
+                    "ai_powered": ai_result.get("ai_powered", False) if ai_result else False,
+                    "agents_used": ai_result.get("agents_used", []) if ai_result else [],
+                    "agent_statuses": agent_statuses,
+                    "total_findings_raw": ai_result.get("total_findings_raw", 0) if ai_result else 0,
+                    "total_anomalies_unified": ai_result.get("total_anomalies_unified", 0) if ai_result else 0,
+                },
+            }
+
+            if result.health_score:
+                data_store.update_system(system_id, {"health_score": result.health_score})
+
+            elapsed = round(time.time() - t0, 2)
+
+            yield _sse_event("stage", {
+                "stage": "complete",
+                "message": f"Analysis complete in {elapsed}s",
+                "progress": 100,
+            })
+
+            yield _sse_event("result", analysis_result)
+
+        except Exception as exc:
+            yield _sse_event("error", {"message": str(exc)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

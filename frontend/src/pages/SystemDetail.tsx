@@ -25,6 +25,8 @@ import clsx from 'clsx';
 import { systemsApi } from '../services/api';
 import type { System, AnalysisResult } from '../types';
 import { FeedbackButtons, FeedbackSummaryBanner } from '../components/AnomalyFeedback';
+import { useAnalysisStream } from '../hooks/useAnalysisStream';
+import { AnalysisStreamPanel } from '../components/AnalysisStreamPanel';
 
 interface DataStatistics {
   total_records: number;
@@ -131,6 +133,36 @@ export default function SystemDetail() {
   const [analyzing, setAnalyzing] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { stream, startStream } = useAnalysisStream();
+
+  // When the stream delivers a final result, apply it
+  useEffect(() => {
+    if (stream.result && !stream.active) {
+      const r = stream.result as AnalysisResult & Record<string, unknown>;
+      setAnalysis({
+        health_score: r.health_score,
+        data_analyzed: r.data_analyzed,
+        anomalies: (r.anomalies as AnalysisData['anomalies']) || [],
+        engineering_margins: (r.engineering_margins as AnalysisData['engineering_margins']) || [],
+        blind_spots: (r.blind_spots as AnalysisData['blind_spots']) || [],
+        insights_summary: r.insights_summary as string | undefined,
+        insights: r.insights as string[] | undefined,
+        ai_analysis: r.ai_analysis as AnalysisData['ai_analysis'],
+      });
+      if (system && r.health_score) {
+        setSystem({ ...system, health_score: r.health_score as number });
+      }
+      setAnalyzing(false);
+    }
+  }, [stream.result, stream.active]);
+
+  // If stream errors, stop the spinner
+  useEffect(() => {
+    if (stream.error && !stream.active) {
+      setError(stream.error);
+      setAnalyzing(false);
+    }
+  }, [stream.error, stream.active]);
 
   useEffect(() => {
     loadSystem();
@@ -170,33 +202,12 @@ export default function SystemDetail() {
     }
   };
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = () => {
     if (!systemId) return;
     setAnalyzing(true);
     setError(null);
-    try {
-      const result = await systemsApi.analyze(systemId);
-      if (result) {
-        setAnalysis({
-          health_score: result.health_score,
-          data_analyzed: result.data_analyzed,
-          anomalies: result.anomalies || [],
-          engineering_margins: result.engineering_margins || [],
-          blind_spots: result.blind_spots || [],
-          insights_summary: result.insights_summary,
-          insights: result.insights,
-          ai_analysis: result.ai_analysis,
-        });
-        if (system && result.health_score) {
-          setSystem({ ...system, health_score: result.health_score });
-        }
-      }
-    } catch (error) {
-      console.error('Analysis failed:', error);
-      setError('Analysis failed. Make sure you have uploaded data first.');
-    } finally {
-      setAnalyzing(false);
-    }
+    // Use SSE streaming — progress is handled by the stream effects above
+    startStream(systemId);
   };
 
   const getProgressWidth = (marginPct: number) => {
@@ -350,6 +361,9 @@ export default function SystemDetail() {
           </div>
         </div>
       )}
+
+      {/* Live Analysis Progress (SSE Streaming) */}
+      {analyzing && <AnalysisStreamPanel stream={stream} />}
 
       {/* AI Agents Status */}
       {analysis?.ai_analysis && (
