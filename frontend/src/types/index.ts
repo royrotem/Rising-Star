@@ -89,14 +89,15 @@ export interface AnalysisResult {
   engineering_margins: EngineeringMargin[];
   blind_spots: BlindSpot[];
   insights_summary?: string;
-  insights?: Record<string, unknown>[];
+  insights?: string[];
   ai_analysis?: {
     ai_powered: boolean;
     agents_used: string[];
     agent_statuses: {
       agent: string;
       status: string;
-      findings?: number;
+      findings: number;
+      perspective?: string;
       error?: string;
     }[];
     total_findings_raw: number;
