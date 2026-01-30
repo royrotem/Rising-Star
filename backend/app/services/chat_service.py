@@ -221,25 +221,32 @@ class ChatService:
         """
         Process a user message and return an AI response.
 
-        Falls back to a keyword-based approach if no API key is configured.
+        Always runs the local analysis engine first so that pre-computed
+        statistics are available.  When an API key is present, Claude
+        receives both the raw data context AND the engine's computed
+        answer so it can reference real numbers while adding deeper
+        insight.  Without an API key the engine answer is returned
+        directly.
         """
         # Persist user message
         conversation_store.add_message(system_id, "user", user_message)
+
+        # Always compute the local analysis engine answer first
+        engine_result = self._fallback_response(user_message, system, records)
 
         # Build context
         system_context = self._build_system_context(system, records, schema)
         history = conversation_store.get_messages(system_id, limit=20)
 
-        # Try AI-powered response
+        # Try AI-powered response (with engine answer as extra context)
         client = self._get_client()
         if client:
             response = await self._ai_response(
-                client, user_message, system_context, history
+                client, user_message, system_context, history,
+                engine_result["content"],
             )
         else:
-            response = self._fallback_response(
-                user_message, system, records
-            )
+            response = engine_result
 
         # Persist assistant response
         conversation_store.add_message(
@@ -254,8 +261,9 @@ class ChatService:
         user_message: str,
         system_context: str,
         history: List[Dict],
+        engine_analysis: str = "",
     ) -> Dict[str, Any]:
-        """Generate response using Claude."""
+        """Generate response using Claude, enriched with pre-computed analysis."""
         # Build message history for context (last 10 turns)
         messages = []
         for msg in history[-10:]:
@@ -283,11 +291,26 @@ class ChatService:
         if not clean_messages:
             clean_messages = [{"role": "user", "content": user_message}]
 
+        # Build system prompt with all available context
+        full_system = self._system_prompt()
+        full_system += f"\n\n--- SYSTEM DATA CONTEXT ---\n{system_context}"
+        if engine_analysis:
+            full_system += (
+                "\n\n--- PRE-COMPUTED ANALYSIS (from local engine) ---\n"
+                "The following analysis was computed by the local statistical engine "
+                "for the user's current question.  Use these real numbers and findings "
+                "as a foundation — reference them, expand on them, add deeper "
+                "engineering insight, root-cause hypotheses, and actionable "
+                "recommendations.  Do NOT simply repeat the engine output verbatim; "
+                "add value on top of it.\n\n"
+                f"{engine_analysis}"
+            )
+
         try:
             resp = client.messages.create(
                 model=self.MODEL,
                 max_tokens=2048,
-                system=self._system_prompt() + f"\n\n--- SYSTEM DATA CONTEXT ---\n{system_context}",
+                system=full_system,
                 messages=clean_messages,
             )
             content = resp.content[0].text if resp.content else "I couldn't generate a response."
@@ -300,13 +323,14 @@ class ChatService:
             }
         except Exception as e:
             print(f"[ChatService] Claude API error: {e}")
+            # Fall back to the engine result on API error
             return {
                 "content": (
-                    f"I encountered an error connecting to the AI service: {e}\n\n"
-                    "Please check your API key in Settings."
+                    f"AI service unavailable ({e}), showing local analysis instead:\n\n"
+                    f"{engine_analysis}"
                 ),
                 "ai_powered": False,
-                "data": {"type": "error", "error": str(e)},
+                "data": {"type": "error_with_fallback", "error": str(e)},
             }
 
     # ── Comprehensive fallback engine (no API key needed) ───────────
