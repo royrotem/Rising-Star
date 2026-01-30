@@ -29,6 +29,7 @@ import { FeedbackButtons, FeedbackSummaryBanner } from '../components/AnomalyFee
 import { useAnalysisStream } from '../hooks/useAnalysisStream';
 import { AnalysisStreamPanel } from '../components/AnalysisStreamPanel';
 import { reportApi } from '../services/reportApi';
+import BaselinePanel from '../components/BaselinePanel';
 
 interface DataStatistics {
   total_records: number;
@@ -465,6 +466,9 @@ export default function SystemDetail() {
           )}
         </div>
       )}
+
+      {/* Baseline & Historical */}
+      {systemId && <BaselinePanel systemId={systemId} />}
 
       {/* Key Insights */}
       {analysis && analysis.insights && analysis.insights.length > 0 && (
