@@ -36,3 +36,6 @@ structlog==24.1.0
 
 # AI / LLM
 anthropic==0.42.0
+
+# PDF Reports
+fpdf2==2.8.5

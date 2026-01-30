@@ -20,6 +20,7 @@ import {
   Brain,
   Cpu,
   Eye,
+  Download,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -27,6 +28,7 @@ import type { System, AnalysisResult } from '../types';
 import { FeedbackButtons, FeedbackSummaryBanner } from '../components/AnomalyFeedback';
 import { useAnalysisStream } from '../hooks/useAnalysisStream';
 import { AnalysisStreamPanel } from '../components/AnalysisStreamPanel';
+import { reportApi } from '../services/reportApi';
 
 interface DataStatistics {
   total_records: number;
@@ -133,6 +135,7 @@ export default function SystemDetail() {
   const [analyzing, setAnalyzing] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const { stream, startStream } = useAnalysisStream();
 
   // When the stream delivers a final result, apply it
@@ -210,6 +213,19 @@ export default function SystemDetail() {
     startStream(systemId);
   };
 
+  const handleDownloadReport = async () => {
+    if (!systemId || downloading) return;
+    setDownloading(true);
+    try {
+      await reportApi.downloadReport(systemId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Download failed';
+      setError(msg);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const getProgressWidth = (marginPct: number) => {
     return (100 - marginPct) + '%';
   };
@@ -266,6 +282,14 @@ export default function SystemDetail() {
             <MessageSquare className="w-4 h-4" />
             Ask AI
           </Link>
+          <button
+            onClick={handleDownloadReport}
+            disabled={downloading}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+          >
+            <Download className={clsx("w-4 h-4", downloading && "animate-bounce")} />
+            {downloading ? 'Generating...' : 'PDF Report'}
+          </button>
           <button
             onClick={() => navigate('/systems/new')}
             className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
