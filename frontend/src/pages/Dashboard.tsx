@@ -16,6 +16,7 @@ import {
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
 import type { System } from '../types';
+import OnboardingGuide from '../components/OnboardingGuide';
 
 // Mock impact radar data
 const mockImpactRadar = {
@@ -140,6 +141,9 @@ export default function Dashboard() {
           Add System
         </button>
       </div>
+
+      {/* Guided Onboarding */}
+      {!loading && <OnboardingGuide systemCount={systems.length} />}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-4 gap-5 mb-8">
