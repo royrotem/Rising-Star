@@ -24,6 +24,7 @@ import {
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
 import type { System, AnalysisResult } from '../types';
+import { FeedbackButtons, FeedbackSummaryBanner } from '../components/AnomalyFeedback';
 
 interface DataStatistics {
   total_records: number;
@@ -430,6 +431,11 @@ export default function SystemDetail() {
         </div>
       )}
 
+      {/* Anomaly Feedback Summary */}
+      {systemId && analysis && analysis.anomalies.length > 0 && (
+        <FeedbackSummaryBanner systemId={systemId} />
+      )}
+
       <div className="grid grid-cols-2 gap-6">
         {/* Anomalies */}
         <div className="bg-slate-800 rounded-xl border border-slate-700">
@@ -599,6 +605,17 @@ export default function SystemDetail() {
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {/* Anomaly Feedback */}
+                  {systemId && (
+                    <FeedbackButtons
+                      systemId={systemId}
+                      anomalyId={anomaly.id}
+                      anomalyTitle={anomaly.title}
+                      anomalyType={anomaly.type}
+                      severity={anomaly.severity}
+                    />
                   )}
                 </div>
               ))

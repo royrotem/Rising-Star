@@ -185,3 +185,36 @@ export interface ConfirmationRequest {
   sample_values?: unknown[];
   options: string[];
 }
+
+// Anomaly Feedback Types
+export type FeedbackType = 'relevant' | 'false_positive' | 'already_known';
+
+export interface AnomalyFeedback {
+  id: string;
+  system_id: string;
+  anomaly_id: string;
+  anomaly_title: string;
+  anomaly_type: string;
+  severity: string;
+  feedback_type: FeedbackType;
+  comment?: string;
+  created_at: string;
+}
+
+export interface FeedbackSummary {
+  system_id: string;
+  total_feedback: number;
+  by_type: {
+    relevant: number;
+    false_positive: number;
+    already_known: number;
+  };
+  false_positive_rate: number;
+  false_positive_patterns: Array<{
+    anomaly_type: string;
+    total: number;
+    false_positive_count: number;
+    false_positive_rate: number;
+  }>;
+  confidence_score: number | null;
+}
