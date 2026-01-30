@@ -7,6 +7,7 @@ import SystemDetail from './pages/SystemDetail';
 import DataIngestion from './pages/DataIngestion';
 import Conversation from './pages/Conversation';
 import Settings from './pages/Settings';
+import AnomalyExplorer from './pages/AnomalyExplorer';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="systems/:systemId" element={<SystemDetail />} />
         <Route path="systems/:systemId/ingest" element={<DataIngestion />} />
         <Route path="systems/:systemId/chat" element={<Conversation />} />
+        <Route path="systems/:systemId/anomalies" element={<AnomalyExplorer />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>

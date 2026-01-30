@@ -453,9 +453,19 @@ export default function SystemDetail() {
       <div className="grid grid-cols-2 gap-6">
         {/* Anomalies */}
         <div className="bg-slate-800 rounded-xl border border-slate-700">
-          <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold text-white">Detected Anomalies</h2>
+          <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-500" />
+              <h2 className="text-lg font-semibold text-white">Detected Anomalies</h2>
+            </div>
+            {analysis && analysis.anomalies.length > 0 && systemId && (
+              <Link
+                to={`/systems/${systemId}/anomalies`}
+                className="text-xs text-primary-400 hover:text-primary-300 font-medium transition-colors"
+              >
+                Explore All
+              </Link>
+            )}
           </div>
           <div className="p-4 space-y-4">
             {!analysis || analysis.anomalies.length === 0 ? (
