@@ -58,6 +58,7 @@ function getSeverityColor(severity: string) {
 function getStatusColor(status: string) {
   switch (status) {
     case 'active': return 'bg-emerald-400';
+    case 'healthy': return 'bg-emerald-400';
     case 'anomaly_detected': return 'bg-orange-400';
     case 'maintenance': return 'bg-yellow-400';
     case 'inactive': return 'bg-slate-500';
@@ -121,7 +122,8 @@ export default function Dashboard() {
     ? (systems.reduce((sum, s) => sum + s.health_score, 0) / systems.length).toFixed(1)
     : '0';
 
-  const anomalyCount = systems.filter(s => s.status === 'anomaly_detected').length;
+  const totalAnomalies = systems.reduce((sum, s) => sum + (s.anomaly_count || 0), 0);
+  const anomalyCount = totalAnomalies || systems.filter(s => s.status === 'anomaly_detected').length;
 
   return (
     <div className="p-8 page-enter">

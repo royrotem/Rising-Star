@@ -27,6 +27,8 @@ class SystemResponse(BaseModel):
     status: str
     health_score: float
     created_at: str
+    anomaly_count: Optional[int] = None
+    last_analysis_at: Optional[str] = None
 
 
 # ─── Field Confirmation Schemas ──────────────────────────────────────

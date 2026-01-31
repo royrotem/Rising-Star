@@ -5,11 +5,13 @@ export interface System {
   system_type: string;
   serial_number?: string;
   model?: string;
-  status: 'active' | 'inactive' | 'maintenance' | 'anomaly_detected';
+  status: 'active' | 'inactive' | 'maintenance' | 'anomaly_detected' | 'healthy';
   health_score: number;
   discovered_schema?: Record<string, unknown>;
   confirmed_fields?: Record<string, FieldConfirmation>;
   created_at: string;
+  anomaly_count?: number;
+  last_analysis_at?: string;
 }
 
 export interface FieldConfirmation {

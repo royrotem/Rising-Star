@@ -184,21 +184,21 @@ def generate_report(
             pdf.ln(3)
             pdf.sub_title("Field Summary")
 
-            # Table header
+            # Table header — total width must stay under 190mm (A4 minus margins)
             pdf.set_font("Helvetica", "B", 8)
             pdf.set_fill_color(240, 240, 250)
             pdf.set_text_color(50, 50, 50)
-            col_widths = [40, 18, 22, 28, 28, 28, 28]
+            col_widths = [38, 18, 20, 26, 26, 26, 26]  # total = 180
             headers = ["Field", "Type", "Unique", "Min", "Max", "Mean", "Std Dev"]
             for i, h in enumerate(headers):
                 pdf.cell(col_widths[i], 7, h, border=1, fill=True, align="C")
             pdf.ln()
 
             # Table rows
-            pdf.set_font("Helvetica", "", 7.5)
+            pdf.set_font("Helvetica", "", 7)
             for f in fields[:20]:
                 pdf.set_text_color(50, 50, 50)
-                pdf.cell(col_widths[0], 6, str(f.get("name", ""))[:22], border=1)
+                pdf.cell(col_widths[0], 6, str(f.get("name", ""))[:20], border=1)
                 pdf.cell(col_widths[1], 6, str(f.get("type", ""))[:10], border=1, align="C")
                 pdf.cell(col_widths[2], 6, str(f.get("unique_count", "")), border=1, align="C")
                 pdf.cell(col_widths[3], 6, _safe(f.get("min")), border=1, align="R")
@@ -274,7 +274,7 @@ def generate_report(
             if affected:
                 meta_parts.append(f"Fields: {', '.join(affected[:5])}")
             if meta_parts:
-                pdf.cell(0, 5, " | ".join(meta_parts), new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(0, 5, " | ".join(meta_parts)[:120], new_x="LMARGIN", new_y="NEXT")
 
             # Description
             desc = anom.get("description", "")
@@ -325,17 +325,17 @@ def generate_report(
         pdf.add_page()
         pdf.section_title(f"Engineering Margins ({len(margins)})")
 
-        # Table header
+        # Table header — total width must stay under 190mm
         pdf.set_font("Helvetica", "B", 8)
         pdf.set_fill_color(240, 240, 250)
         pdf.set_text_color(50, 50, 50)
-        mcols = [36, 30, 24, 24, 28, 22, 26]
+        mcols = [34, 28, 24, 24, 24, 22, 24]  # total = 180
         mheaders = ["Component", "Parameter", "Current", "Limit", "Margin %", "Trend", "Safety"]
         for j, h in enumerate(mheaders):
             pdf.cell(mcols[j], 7, h, border=1, fill=True, align="C")
         pdf.ln()
 
-        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_font("Helvetica", "", 7)
         for m in margins[:20]:
             margin_pct = m.get("margin_percentage", 0)
             if margin_pct < 15:
@@ -345,12 +345,12 @@ def generate_report(
             else:
                 pdf.set_text_color(50, 50, 50)
 
-            pdf.cell(mcols[0], 6, str(m.get("component", ""))[:20], border=1)
-            pdf.cell(mcols[1], 6, str(m.get("parameter", ""))[:16], border=1)
+            pdf.cell(mcols[0], 6, str(m.get("component", ""))[:18], border=1)
+            pdf.cell(mcols[1], 6, str(m.get("parameter", ""))[:14], border=1)
             pdf.cell(mcols[2], 6, _safe(m.get("current_value")), border=1, align="R")
             pdf.cell(mcols[3], 6, _safe(m.get("design_limit")), border=1, align="R")
             pdf.cell(mcols[4], 6, f"{margin_pct:.1f}%", border=1, align="R")
-            pdf.cell(mcols[5], 6, str(m.get("trend", "")), border=1, align="C")
+            pdf.cell(mcols[5], 6, str(m.get("trend", ""))[:10], border=1, align="C")
             pdf.cell(mcols[6], 6, "YES" if m.get("safety_critical") else "no", border=1, align="C")
             pdf.ln()
 
@@ -371,7 +371,8 @@ def generate_report(
             if sensor and isinstance(sensor, dict):
                 pdf.set_font("Helvetica", "", 8.5)
                 pdf.set_text_color(70, 70, 130)
-                pdf.cell(0, 5, f"Recommended: {sensor.get('type', '')} — {sensor.get('specification', '')} (est. ${sensor.get('estimated_cost', 'N/A')})", new_x="LMARGIN", new_y="NEXT")
+                rec_text = f"Recommended: {sensor.get('type', '')} -- {sensor.get('specification', '')} (est. ${sensor.get('estimated_cost', 'N/A')})"
+                pdf.multi_cell(0, 5, rec_text[:200])
 
             improvement = spot.get("diagnostic_coverage_improvement", 0)
             if improvement:

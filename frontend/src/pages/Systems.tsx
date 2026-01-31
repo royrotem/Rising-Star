@@ -37,6 +37,7 @@ const systemTypeIcons: Record<string, React.ElementType> = {
 function getStatusColor(status: string) {
   switch (status) {
     case 'active': return 'bg-green-500';
+    case 'healthy': return 'bg-green-500';
     case 'anomaly_detected': return 'bg-orange-500';
     case 'maintenance': return 'bg-yellow-500';
     case 'inactive': return 'bg-slate-500';
@@ -227,13 +228,20 @@ export default function Systems() {
                       </p>
 
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Activity className="w-4 h-4 text-slate-500" />
-                          <span className={clsx('font-medium', getHealthColor(system.health_score))}>
-                            {system.health_score !== undefined && system.health_score !== null
-                              ? `${system.health_score}% Health`
-                              : 'Not analyzed'}
-                          </span>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-slate-500" />
+                            <span className={clsx('font-medium', getHealthColor(system.health_score))}>
+                              {system.health_score !== undefined && system.health_score !== null
+                                ? `${system.health_score}% Health`
+                                : 'Not analyzed'}
+                            </span>
+                          </div>
+                          {system.anomaly_count != null && system.anomaly_count > 0 && (
+                            <span className="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded-full font-medium">
+                              {system.anomaly_count} anomalies
+                            </span>
+                          )}
                         </div>
                         <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-primary-400 transition-colors" />
                       </div>

@@ -557,8 +557,19 @@ async def analyze_system(system_id: str, request: AnalysisRequest):
         },
     }
 
+    # Update system with analysis results
+    updates: Dict[str, Any] = {}
     if result.health_score:
-        data_store.update_system(system_id, {"health_score": result.health_score})
+        updates["health_score"] = result.health_score
+    if anomalies:
+        updates["status"] = "anomaly_detected"
+        updates["anomaly_count"] = len(anomalies)
+    else:
+        updates["status"] = "healthy"
+        updates["anomaly_count"] = 0
+    updates["last_analysis_at"] = datetime.utcnow().isoformat()
+    if updates:
+        data_store.update_system(system_id, updates)
 
     # Persist analysis result so the PDF report endpoint can find it
     try:
