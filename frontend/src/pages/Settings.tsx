@@ -11,9 +11,14 @@ import {
   Cpu,
   Eye,
   EyeOff,
+  Timer,
+  Power,
+  Clock,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
+import { systemsApi, schedulesApi } from '../services/api';
+import type { System, Schedule } from '../types';
 
 interface AISettings {
   anthropic_api_key: string;
@@ -45,8 +50,14 @@ export default function Settings() {
   const [showKey, setShowKey] = useState(false);
   const [keyEdited, setKeyEdited] = useState(false);
 
+  // Watchdog state
+  const [systems, setSystems] = useState<System[]>([]);
+  const [schedules, setSchedules] = useState<Record<string, Schedule>>({});
+  const [watchdogSaving, setWatchdogSaving] = useState<string | null>(null);
+
   useEffect(() => {
     loadSettings();
+    loadWatchdog();
   }, []);
 
   const loadSettings = async () => {
@@ -70,6 +81,46 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadWatchdog = async () => {
+    try {
+      const [sysList, schedList] = await Promise.all([
+        systemsApi.list(),
+        schedulesApi.list(),
+      ]);
+      setSystems(sysList);
+      const map: Record<string, Schedule> = {};
+      for (const s of schedList) map[s.system_id] = s;
+      setSchedules(map);
+    } catch { /* not critical */ }
+  };
+
+  const toggleWatchdog = async (systemId: string) => {
+    setWatchdogSaving(systemId);
+    const current = schedules[systemId];
+    const newEnabled = !current?.enabled;
+    try {
+      const updated = await schedulesApi.set(systemId, {
+        enabled: newEnabled,
+        interval: current?.interval || '24h',
+      });
+      setSchedules((prev) => ({ ...prev, [systemId]: updated }));
+    } catch { /* ignore */ }
+    setWatchdogSaving(null);
+  };
+
+  const changeWatchdogInterval = async (systemId: string, interval: string) => {
+    setWatchdogSaving(systemId);
+    const current = schedules[systemId];
+    try {
+      const updated = await schedulesApi.set(systemId, {
+        enabled: current?.enabled ?? true,
+        interval,
+      });
+      setSchedules((prev) => ({ ...prev, [systemId]: updated }));
+    } catch { /* ignore */ }
+    setWatchdogSaving(null);
   };
 
   const handleSave = async () => {
@@ -282,6 +333,93 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* Watchdog (Scheduled Auto-Analysis) */}
+      {systems.length > 0 && (
+        <div className="bg-slate-800 rounded-xl border border-slate-700 mb-6">
+          <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+            <Timer className="w-5 h-5 text-primary-400" />
+            <h2 className="text-lg font-semibold text-white">Watchdog — Scheduled Auto-Analysis</h2>
+          </div>
+          <div className="p-6">
+            <p className="text-xs text-slate-500 mb-4">
+              Enable automatic periodic analysis per system. Each system can have its own schedule.
+            </p>
+            <div className="space-y-3">
+              {systems.map((sys) => {
+                const sched = schedules[sys.id];
+                const enabled = sched?.enabled ?? false;
+                const interval = sched?.interval ?? '24h';
+                const isSaving = watchdogSaving === sys.id;
+                return (
+                  <div
+                    key={sys.id}
+                    className={clsx(
+                      'flex items-center justify-between p-4 rounded-lg border transition-colors',
+                      enabled
+                        ? 'bg-primary-500/5 border-primary-500/20'
+                        : 'bg-slate-900/30 border-slate-700'
+                    )}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={clsx(
+                        'w-2 h-2 rounded-full flex-shrink-0',
+                        enabled ? 'bg-primary-400' : 'bg-slate-600'
+                      )} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{sys.name}</p>
+                        <p className="text-xs text-slate-500 capitalize">{sys.system_type.replace('_', ' ')}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {/* Interval selector */}
+                      <select
+                        value={interval}
+                        onChange={(e) => changeWatchdogInterval(sys.id, e.target.value)}
+                        disabled={isSaving}
+                        className="px-2 py-1.5 bg-slate-900 border border-slate-600 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-primary-500"
+                      >
+                        <option value="1h">Every 1h</option>
+                        <option value="6h">Every 6h</option>
+                        <option value="12h">Every 12h</option>
+                        <option value="24h">Every 24h</option>
+                        <option value="7d">Every 7d</option>
+                      </select>
+
+                      {/* Last run info */}
+                      {sched?.last_run_at && (
+                        <span className="flex items-center gap-1 text-xs text-slate-500">
+                          <Clock className="w-3 h-3" />
+                          {sched.run_count} runs
+                        </span>
+                      )}
+
+                      {/* Toggle */}
+                      <button
+                        onClick={() => toggleWatchdog(sys.id)}
+                        disabled={isSaving}
+                        className={clsx(
+                          'relative w-10 h-5 rounded-full transition-colors flex-shrink-0',
+                          enabled ? 'bg-primary-500' : 'bg-slate-600'
+                        )}
+                      >
+                        {isSaving ? (
+                          <Loader2 className="w-3 h-3 text-white animate-spin absolute top-1 left-3.5" />
+                        ) : (
+                          <div className={clsx(
+                            'absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform',
+                            enabled ? 'translate-x-5' : 'translate-x-0.5'
+                          )} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Save Button */}
       <div className="flex items-center gap-4">
