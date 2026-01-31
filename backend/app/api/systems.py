@@ -469,6 +469,28 @@ async def get_data_sources(system_id: str):
 # Analysis
 # ═══════════════════════════════════════════════════════════════════════
 
+@router.get("/{system_id}/analysis")
+async def get_saved_analysis(system_id: str):
+    """Return the most recent saved analysis result, or 404 if none exists."""
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    from pathlib import Path
+    data_dir = os.environ.get("DATA_DIR", "/app/data")
+    if not os.path.exists("/app") and os.path.exists(os.path.dirname(__file__)):
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+    analysis_path = Path(data_dir) / "analyses" / f"{system_id}.json"
+
+    if not analysis_path.exists():
+        raise HTTPException(status_code=404, detail="No analysis found. Run analysis first.")
+
+    try:
+        return json.loads(analysis_path.read_text())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load analysis: {e}")
+
+
 @router.post("/{system_id}/analyze")
 async def analyze_system(system_id: str, request: AnalysisRequest):
     """

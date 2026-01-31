@@ -191,13 +191,27 @@ export default function SystemDetail() {
         console.log('No statistics available');
       }
 
-      // Initialize empty analysis
-      setAnalysis({
-        health_score: (data as System).health_score || null,
-        anomalies: [],
-        engineering_margins: [],
-        blind_spots: [],
-      });
+      // Load saved analysis (if any)
+      const saved = await systemsApi.getAnalysis(systemId);
+      if (saved) {
+        setAnalysis({
+          health_score: saved.health_score ?? (data as System).health_score ?? null,
+          data_analyzed: saved.data_analyzed,
+          anomalies: (saved.anomalies as AnalysisData['anomalies']) || [],
+          engineering_margins: (saved.engineering_margins as AnalysisData['engineering_margins']) || [],
+          blind_spots: (saved.blind_spots as AnalysisData['blind_spots']) || [],
+          insights_summary: saved.insights_summary,
+          insights: saved.insights,
+          ai_analysis: saved.ai_analysis,
+        });
+      } else {
+        setAnalysis({
+          health_score: (data as System).health_score || null,
+          anomalies: [],
+          engineering_margins: [],
+          blind_spots: [],
+        });
+      }
     } catch (error) {
       console.error('Failed to load system:', error);
       setError('Failed to load system. Make sure the backend is running.');
@@ -304,7 +318,7 @@ export default function SystemDetail() {
             className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
           >
             <RefreshCw className={clsx("w-4 h-4", analyzing && "animate-spin")} />
-            {analyzing ? 'Analyzing...' : 'Run Analysis'}
+            {analyzing ? 'Analyzing...' : (analysis && analysis.anomalies.length > 0 ? 'Re-Analyze' : 'Run Analysis')}
           </button>
         </div>
       </div>

@@ -75,6 +75,15 @@ export const systemsApi = {
     return data;
   },
 
+  getAnalysis: async (systemId: string): Promise<AnalysisResult | null> => {
+    try {
+      const { data } = await api.get(`/systems/${systemId}/analysis`);
+      return data;
+    } catch {
+      return null;
+    }
+  },
+
   analyze: async (
     systemId: string,
     options?: {
