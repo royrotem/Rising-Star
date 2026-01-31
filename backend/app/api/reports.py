@@ -80,7 +80,7 @@ async def download_report(system_id: str):
     filename = f"UAIE_Report_{system.get('name', 'system').replace(' ', '_')}_{system_id[:8]}.pdf"
 
     return Response(
-        content=pdf_bytes,
+        content=bytes(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -164,7 +164,7 @@ async def analyze_and_report(system_id: str):
     filename = f"UAIE_Report_{system.get('name', 'system').replace(' ', '_')}_{system_id[:8]}.pdf"
 
     return Response(
-        content=pdf_bytes,
+        content=bytes(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
