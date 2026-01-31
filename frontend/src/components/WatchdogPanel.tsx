@@ -90,10 +90,10 @@ export default function WatchdogPanel({ systemId }: Props) {
 
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
+      <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6">
         <div className="flex items-center gap-3">
           <Loader2 className="w-5 h-5 text-primary-400 animate-spin" />
-          <span className="text-sm text-slate-400">Loading watchdog configuration...</span>
+          <span className="text-sm text-stone-400">Loading watchdog configuration...</span>
         </div>
       </div>
     );
@@ -110,15 +110,15 @@ export default function WatchdogPanel({ systemId }: Props) {
       'rounded-xl border p-6 mb-6 transition-colors',
       localEnabled
         ? 'bg-primary-500/5 border-primary-500/30'
-        : 'bg-slate-800 border-slate-700'
+        : 'bg-stone-800 border-stone-700'
     )}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={clsx(
             'p-2.5 rounded-xl',
-            localEnabled ? 'bg-primary-500/10' : 'bg-slate-700/50'
+            localEnabled ? 'bg-primary-500/10' : 'bg-stone-700/50'
           )}>
-            <Timer className={clsx('w-5 h-5', localEnabled ? 'text-primary-400' : 'text-slate-500')} />
+            <Timer className={clsx('w-5 h-5', localEnabled ? 'text-primary-400' : 'text-stone-500')} />
           </div>
           <div>
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
@@ -129,7 +129,7 @@ export default function WatchdogPanel({ systemId }: Props) {
                 </span>
               )}
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-stone-500">
               Automatically re-run analysis on a schedule
             </p>
           </div>
@@ -140,12 +140,12 @@ export default function WatchdogPanel({ systemId }: Props) {
           disabled={saving}
           className={clsx(
             'relative w-12 h-6 rounded-full transition-colors',
-            localEnabled ? 'bg-primary-500' : 'bg-slate-600'
+            localEnabled ? 'bg-primary-500' : 'bg-stone-600'
           )}
         >
           <div className={clsx(
             'absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform',
-            localEnabled ? 'translate-x-6' : 'translate-x-0.5'
+            localEnabled ? 'transtone-x-6' : 'transtone-x-0.5'
           )} />
         </button>
       </div>
@@ -161,7 +161,7 @@ export default function WatchdogPanel({ systemId }: Props) {
               'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
               localInterval === opt.value
                 ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                : 'bg-slate-700/50 text-slate-400 border border-slate-600 hover:border-slate-500'
+                : 'bg-stone-700/50 text-stone-400 border border-stone-600 hover:border-stone-500'
             )}
           >
             {opt.label}
@@ -172,7 +172,7 @@ export default function WatchdogPanel({ systemId }: Props) {
 
       {/* Last run info */}
       {schedule && (schedule.last_run_at || schedule.run_count > 0) && (
-        <div className="flex items-center gap-4 text-xs text-slate-500">
+        <div className="flex items-center gap-4 text-xs text-stone-500">
           {schedule.last_run_at && (
             <span className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" />

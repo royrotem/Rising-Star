@@ -158,12 +158,12 @@ export default function Conversation() {
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
-      <div className="flex items-center gap-4 p-4 border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm">
+      <div className="flex items-center gap-4 p-4 border-b border-stone-700 bg-stone-800/80 backdrop-blur-sm">
         <Link
           to={'/systems/' + systemId}
-          className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+          className="p-2 hover:bg-stone-700 rounded-lg transition-colors"
         >
-          <ArrowLeft className="w-5 h-5 text-slate-400" />
+          <ArrowLeft className="w-5 h-5 text-stone-400" />
         </Link>
         <div className="flex items-center gap-3 flex-1">
           <div className="p-2 bg-primary-500/10 rounded-lg">
@@ -174,7 +174,7 @@ export default function Conversation() {
               Conversational Chief Engineer
               <Sparkles className="w-4 h-4 text-amber-400" />
             </h1>
-            <p className="text-sm text-slate-400 flex items-center gap-1.5">
+            <p className="text-sm text-stone-400 flex items-center gap-1.5">
               <Zap className="w-3 h-3 text-emerald-400" />
               AI-powered — ask questions about your system in natural language
             </p>
@@ -184,7 +184,7 @@ export default function Conversation() {
           <button
             onClick={handleClearHistory}
             disabled={clearing}
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-red-400"
+            className="p-2 hover:bg-stone-700 rounded-lg transition-colors text-stone-400 hover:text-red-400"
             title="Clear conversation"
           >
             {clearing ? (
@@ -208,7 +208,7 @@ export default function Conversation() {
           >
             <div className={clsx(
               'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-              message.role === 'user' ? 'bg-primary-500' : 'bg-slate-700'
+              message.role === 'user' ? 'bg-primary-500' : 'bg-stone-700'
             )}>
               {message.role === 'user' ? (
                 <User className="w-5 h-5 text-white" />
@@ -220,7 +220,7 @@ export default function Conversation() {
               'rounded-xl p-4 max-w-2xl',
               message.role === 'user'
                 ? 'bg-primary-500 text-white'
-                : 'bg-slate-800 border border-slate-700'
+                : 'bg-stone-800 border border-stone-700'
             )}>
               <div className={clsx(
                 'prose prose-sm max-w-none',
@@ -229,7 +229,7 @@ export default function Conversation() {
                 {message.content.split('\n').map((line, i) => (
                   <p key={i} className={clsx(
                     'mb-2 last:mb-0',
-                    message.role === 'assistant' && 'text-slate-200'
+                    message.role === 'assistant' && 'text-stone-200'
                   )}>
                     {line.split('**').map((part, j) =>
                       j % 2 === 1 ? <strong key={j}>{part}</strong> : part
@@ -239,14 +239,14 @@ export default function Conversation() {
               </div>
 
               {message.data?.evidence && (
-                <div className="mt-3 pt-3 border-t border-slate-600">
-                  <div className="flex items-center gap-2 text-sm text-slate-400 mb-2">
+                <div className="mt-3 pt-3 border-t border-stone-600">
+                  <div className="flex items-center gap-2 text-sm text-stone-400 mb-2">
                     <AlertTriangle className="w-4 h-4" />
                     <span>Supporting Evidence</span>
                   </div>
                   <ul className="space-y-1">
                     {message.data.evidence.map((item, i) => (
-                      <li key={i} className="text-sm text-slate-300 flex items-start gap-2">
+                      <li key={i} className="text-sm text-stone-300 flex items-start gap-2">
                         <span className="text-primary-400">•</span>
                         {item}
                       </li>
@@ -257,7 +257,7 @@ export default function Conversation() {
 
               {/* AI-powered badge for assistant messages */}
               {message.role === 'assistant' && message.aiPowered && message.id !== 'welcome' && (
-                <div className="mt-2 pt-2 border-t border-slate-700/50">
+                <div className="mt-2 pt-2 border-t border-stone-700/50">
                   <span className="inline-flex items-center gap-1 text-xs text-emerald-400/70">
                     <Sparkles className="w-3 h-3" />
                     AI-powered response
@@ -270,13 +270,13 @@ export default function Conversation() {
 
         {isLoading && (
           <div className="flex gap-3 max-w-4xl animate-fadeIn">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-700">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-stone-700">
               <Bot className="w-5 h-5 text-primary-400" />
             </div>
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+            <div className="bg-stone-800 border border-stone-700 rounded-xl p-4">
               <div className="flex items-center gap-2">
                 <Loader2 className="w-5 h-5 text-primary-400 animate-spin" />
-                <span className="text-sm text-slate-400">Analyzing your data...</span>
+                <span className="text-sm text-stone-400">Analyzing your data...</span>
               </div>
             </div>
           </div>
@@ -288,7 +288,7 @@ export default function Conversation() {
       {/* Suggested Queries */}
       {messages.length <= 2 && (
         <div className="px-4 pb-4">
-          <div className="flex items-center gap-2 mb-2 text-sm text-slate-400">
+          <div className="flex items-center gap-2 mb-2 text-sm text-stone-400">
             <Lightbulb className="w-4 h-4" />
             <span>Suggested questions</span>
           </div>
@@ -297,7 +297,7 @@ export default function Conversation() {
               <button
                 key={i}
                 onClick={() => handleSuggestedQuery(query)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm text-slate-300 transition-colors"
+                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 border border-stone-700 rounded-lg text-sm text-stone-300 transition-colors"
               >
                 {query}
               </button>
@@ -307,7 +307,7 @@ export default function Conversation() {
       )}
 
       {/* Input */}
-      <div className="p-4 border-t border-slate-700 bg-slate-800/80 backdrop-blur-sm">
+      <div className="p-4 border-t border-stone-700 bg-stone-800/80 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto flex gap-3">
           <input
             type="text"
@@ -315,7 +315,7 @@ export default function Conversation() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask a question about your system..."
-            className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 transition-colors"
+            className="flex-1 px-4 py-3 bg-stone-900 border border-stone-700 rounded-xl text-white placeholder-stone-500 focus:outline-none focus:border-primary-500 transition-colors"
           />
           <button
             onClick={handleSend}

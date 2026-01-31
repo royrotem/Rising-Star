@@ -187,12 +187,12 @@ export default function Settings() {
     <div className="p-8 max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
-        <Link to="/" className="p-2 hover:bg-slate-800 rounded-lg transition-colors">
-          <ArrowLeft className="w-5 h-5 text-slate-400" />
+        <Link to="/" className="p-2 hover:bg-stone-800 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-stone-400" />
         </Link>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-white">Settings</h1>
-          <p className="text-slate-400 text-sm">Configure AI agents and application behavior</p>
+          <p className="text-stone-400 text-sm">Configure AI agents and application behavior</p>
         </div>
       </div>
 
@@ -209,7 +209,7 @@ export default function Settings() {
           ) : (
             <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
           )}
-          <p className="text-sm text-slate-300">{aiStatus.message}</p>
+          <p className="text-sm text-stone-300">{aiStatus.message}</p>
         </div>
       )}
 
@@ -217,13 +217,13 @@ export default function Settings() {
       {error && (
         <div className="mb-6 p-4 rounded-lg border border-red-500/30 bg-red-500/10 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-400" />
-          <p className="text-sm text-slate-300">{error}</p>
+          <p className="text-sm text-stone-300">{error}</p>
         </div>
       )}
 
       {/* AI Configuration */}
-      <div className="bg-slate-800 rounded-xl border border-slate-700 mb-6">
-        <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+      <div className="bg-stone-800 rounded-xl border border-stone-700 mb-6">
+        <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
           <Brain className="w-5 h-5 text-purple-400" />
           <h2 className="text-lg font-semibold text-white">AI Agent Configuration</h2>
         </div>
@@ -231,7 +231,7 @@ export default function Settings() {
         <div className="p-6 space-y-6">
           {/* API Key */}
           <div>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-stone-300 mb-2">
               <Key className="w-4 h-4 text-yellow-400" />
               Anthropic API Key
             </label>
@@ -245,18 +245,18 @@ export default function Settings() {
                     setKeyEdited(true);
                   }}
                   placeholder="sk-ant-..."
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 font-mono text-sm"
+                  className="w-full px-4 py-2.5 bg-stone-900 border border-stone-600 rounded-lg text-white placeholder-stone-500 focus:outline-none focus:border-primary-500 font-mono text-sm"
                 />
                 <button
                   type="button"
                   onClick={() => setShowKey(!showKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  className="absolute right-3 top-1/2 -transtone-y-1/2 text-stone-500 hover:text-stone-300"
                 >
                   {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-stone-500 mt-1">
               Required for LLM-powered multi-agent analysis. Get your key at console.anthropic.com
             </p>
           </div>
@@ -266,20 +266,20 @@ export default function Settings() {
             <div className="flex items-center gap-3">
               <Cpu className="w-5 h-5 text-primary-400" />
               <div>
-                <p className="text-sm font-medium text-slate-300">Enable AI Agents</p>
-                <p className="text-xs text-slate-500">Run multi-agent LLM analysis alongside rule-based engine</p>
+                <p className="text-sm font-medium text-stone-300">Enable AI Agents</p>
+                <p className="text-xs text-stone-500">Run multi-agent LLM analysis alongside rule-based engine</p>
               </div>
             </div>
             <button
               onClick={() => setAiSettings({ ...aiSettings, enable_ai_agents: !aiSettings.enable_ai_agents })}
               className={clsx(
                 'relative w-12 h-6 rounded-full transition-colors',
-                aiSettings.enable_ai_agents ? 'bg-primary-500' : 'bg-slate-600'
+                aiSettings.enable_ai_agents ? 'bg-primary-500' : 'bg-stone-600'
               )}
             >
               <div className={clsx(
                 'absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform',
-                aiSettings.enable_ai_agents ? 'translate-x-6' : 'translate-x-0.5'
+                aiSettings.enable_ai_agents ? 'transtone-x-6' : 'transtone-x-0.5'
               )} />
             </button>
           </div>
@@ -289,27 +289,27 @@ export default function Settings() {
             <div className="flex items-center gap-3">
               <Globe className="w-5 h-5 text-cyan-400" />
               <div>
-                <p className="text-sm font-medium text-slate-300">Web Grounding</p>
-                <p className="text-xs text-slate-500">Allow agents to search the web for engineering context</p>
+                <p className="text-sm font-medium text-stone-300">Web Grounding</p>
+                <p className="text-xs text-stone-500">Allow agents to search the web for engineering context</p>
               </div>
             </div>
             <button
               onClick={() => setAiSettings({ ...aiSettings, enable_web_grounding: !aiSettings.enable_web_grounding })}
               className={clsx(
                 'relative w-12 h-6 rounded-full transition-colors',
-                aiSettings.enable_web_grounding ? 'bg-primary-500' : 'bg-slate-600'
+                aiSettings.enable_web_grounding ? 'bg-primary-500' : 'bg-stone-600'
               )}
             >
               <div className={clsx(
                 'absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform',
-                aiSettings.enable_web_grounding ? 'translate-x-6' : 'translate-x-0.5'
+                aiSettings.enable_web_grounding ? 'transtone-x-6' : 'transtone-x-0.5'
               )} />
             </button>
           </div>
 
           {/* Extended Thinking Budget */}
           <div>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-stone-300 mb-2">
               <Brain className="w-4 h-4 text-purple-400" />
               Extended Thinking Budget
             </label>
@@ -323,11 +323,11 @@ export default function Settings() {
                 onChange={(e) => setAiSettings({ ...aiSettings, extended_thinking_budget: Number(e.target.value) })}
                 className="flex-1 accent-primary-500"
               />
-              <span className="text-sm text-slate-400 w-20 text-right font-mono">
+              <span className="text-sm text-stone-400 w-20 text-right font-mono">
                 {aiSettings.extended_thinking_budget.toLocaleString()} tokens
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-stone-500 mt-1">
               Higher budget allows the Root Cause Investigator agent to think more deeply
             </p>
           </div>
@@ -336,13 +336,13 @@ export default function Settings() {
 
       {/* Watchdog (Scheduled Auto-Analysis) */}
       {systems.length > 0 && (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 mb-6">
-          <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+        <div className="bg-stone-800 rounded-xl border border-stone-700 mb-6">
+          <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
             <Timer className="w-5 h-5 text-primary-400" />
             <h2 className="text-lg font-semibold text-white">Watchdog — Scheduled Auto-Analysis</h2>
           </div>
           <div className="p-6">
-            <p className="text-xs text-slate-500 mb-4">
+            <p className="text-xs text-stone-500 mb-4">
               Enable automatic periodic analysis per system. Each system can have its own schedule.
             </p>
             <div className="space-y-3">
@@ -358,17 +358,17 @@ export default function Settings() {
                       'flex items-center justify-between p-4 rounded-lg border transition-colors',
                       enabled
                         ? 'bg-primary-500/5 border-primary-500/20'
-                        : 'bg-slate-900/30 border-slate-700'
+                        : 'bg-stone-900/30 border-stone-700'
                     )}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={clsx(
                         'w-2 h-2 rounded-full flex-shrink-0',
-                        enabled ? 'bg-primary-400' : 'bg-slate-600'
+                        enabled ? 'bg-primary-400' : 'bg-stone-600'
                       )} />
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-white truncate">{sys.name}</p>
-                        <p className="text-xs text-slate-500 capitalize">{sys.system_type.replace('_', ' ')}</p>
+                        <p className="text-xs text-stone-500 capitalize">{sys.system_type.replace('_', ' ')}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
@@ -377,7 +377,7 @@ export default function Settings() {
                         value={interval}
                         onChange={(e) => changeWatchdogInterval(sys.id, e.target.value)}
                         disabled={isSaving}
-                        className="px-2 py-1.5 bg-slate-900 border border-slate-600 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-primary-500"
+                        className="px-2 py-1.5 bg-stone-900 border border-stone-600 rounded-lg text-xs text-stone-300 focus:outline-none focus:border-primary-500"
                       >
                         <option value="1h">Every 1h</option>
                         <option value="6h">Every 6h</option>
@@ -388,7 +388,7 @@ export default function Settings() {
 
                       {/* Last run info */}
                       {sched?.last_run_at && (
-                        <span className="flex items-center gap-1 text-xs text-slate-500">
+                        <span className="flex items-center gap-1 text-xs text-stone-500">
                           <Clock className="w-3 h-3" />
                           {sched.run_count} runs
                         </span>
@@ -400,7 +400,7 @@ export default function Settings() {
                         disabled={isSaving}
                         className={clsx(
                           'relative w-10 h-5 rounded-full transition-colors flex-shrink-0',
-                          enabled ? 'bg-primary-500' : 'bg-slate-600'
+                          enabled ? 'bg-primary-500' : 'bg-stone-600'
                         )}
                       >
                         {isSaving ? (
@@ -408,7 +408,7 @@ export default function Settings() {
                         ) : (
                           <div className={clsx(
                             'absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform',
-                            enabled ? 'translate-x-5' : 'translate-x-0.5'
+                            enabled ? 'transtone-x-5' : 'transtone-x-0.5'
                           )} />
                         )}
                       </button>

@@ -28,7 +28,7 @@ export function AnalysisStreamPanel({ stream }: Props) {
   const { progress, message, layers, agents, active, error } = stream;
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6 animate-in fade-in">
+    <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6 animate-in fade-in">
       {/* Progress bar */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
@@ -44,9 +44,9 @@ export function AnalysisStreamPanel({ stream }: Props) {
               {active ? 'Analysis In Progress' : error ? 'Analysis Failed' : 'Analysis Complete'}
             </span>
           </div>
-          <span className="text-xs text-slate-400">{progress}%</span>
+          <span className="text-xs text-stone-400">{progress}%</span>
         </div>
-        <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+        <div className="h-2 bg-stone-700 rounded-full overflow-hidden">
           <div
             className={clsx(
               'h-full rounded-full transition-all duration-500 ease-out',
@@ -55,13 +55,13 @@ export function AnalysisStreamPanel({ stream }: Props) {
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="text-xs text-slate-400 mt-1.5">{message}</p>
+        <p className="text-xs text-stone-400 mt-1.5">{message}</p>
       </div>
 
       {/* Detection Layers */}
       {layers.length > 0 && (
         <div className="mb-4">
-          <h4 className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1.5">
+          <h4 className="text-xs font-medium text-stone-400 mb-2 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5" />
             Detection Layers
           </h4>
@@ -85,16 +85,16 @@ export function AnalysisStreamPanel({ stream }: Props) {
                     done
                       ? 'border-green-500/30 bg-green-500/5'
                       : active
-                      ? 'border-slate-600 bg-slate-700/30 animate-pulse'
-                      : 'border-slate-600 bg-slate-700/30'
+                      ? 'border-stone-600 bg-stone-700/30 animate-pulse'
+                      : 'border-stone-600 bg-stone-700/30'
                   )}
                 >
                   {done ? (
                     <CheckCircle className="w-4 h-4 mx-auto text-green-400 mb-1" />
                   ) : (
-                    <Zap className="w-4 h-4 mx-auto text-slate-500 mb-1" />
+                    <Zap className="w-4 h-4 mx-auto text-stone-500 mb-1" />
                   )}
-                  <p className="text-[10px] text-slate-300 leading-tight">{names[i]}</p>
+                  <p className="text-[10px] text-stone-300 leading-tight">{names[i]}</p>
                 </div>
               );
             })}
@@ -105,7 +105,7 @@ export function AnalysisStreamPanel({ stream }: Props) {
       {/* AI Agents */}
       {agents.length > 0 && (
         <div>
-          <h4 className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1.5">
+          <h4 className="text-xs font-medium text-stone-400 mb-2 flex items-center gap-1.5">
             <Brain className="w-3.5 h-3.5" />
             AI Agents
           </h4>
@@ -127,7 +127,7 @@ export function AnalysisStreamPanel({ stream }: Props) {
                   )}
                 />
                 <p className="text-[10px] text-white truncate">{agent.agent}</p>
-                <p className="text-[10px] text-slate-500">
+                <p className="text-[10px] text-stone-500">
                   {agent.status === 'success'
                     ? `${agent.findings} findings`
                     : 'Error'}

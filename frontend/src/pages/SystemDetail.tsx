@@ -115,7 +115,7 @@ interface AnalysisData {
 function getTrendIcon(trend: string) {
   if (trend === 'degrading') return <TrendingDown className="w-4 h-4 text-red-500" />;
   if (trend === 'improving') return <TrendingDown className="w-4 h-4 text-green-500 rotate-180" />;
-  return <Activity className="w-4 h-4 text-slate-500" />;
+  return <Activity className="w-4 h-4 text-stone-500" />;
 }
 
 export default function SystemDetail() {
@@ -249,7 +249,7 @@ export default function SystemDetail() {
     return (
       <div className="p-8 text-center">
         <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-        <p className="text-slate-400 mb-4">{error}</p>
+        <p className="text-stone-400 mb-4">{error}</p>
         <Link to="/systems" className="text-primary-400 hover:text-primary-300">
           Back to Systems
         </Link>
@@ -260,7 +260,7 @@ export default function SystemDetail() {
   if (!system) {
     return (
       <div className="p-8 text-center">
-        <p className="text-slate-400">System not found</p>
+        <p className="text-stone-400">System not found</p>
         <Link to="/systems" className="text-primary-400 hover:text-primary-300">
           Back to Systems
         </Link>
@@ -274,17 +274,17 @@ export default function SystemDetail() {
     <div className="p-8">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link to="/systems" className="p-2 hover:bg-slate-800 rounded-lg transition-colors">
-          <ArrowLeft className="w-5 h-5 text-slate-400" />
+        <Link to="/systems" className="p-2 hover:bg-stone-800 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-stone-400" />
         </Link>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-white">{system.name}</h1>
-          <p className="text-slate-400 capitalize">{system.system_type.replace('_', ' ')} | ID: {systemId}</p>
+          <p className="text-stone-400 capitalize">{system.system_type.replace('_', ' ')} | ID: {systemId}</p>
         </div>
         <div className="flex items-center gap-3">
           <Link
             to={`/systems/${systemId}/chat`}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-stone-700 hover:bg-stone-600 text-white rounded-lg font-medium transition-colors"
           >
             <MessageSquare className="w-4 h-4" />
             Ask AI
@@ -292,14 +292,14 @@ export default function SystemDetail() {
           <button
             onClick={handleDownloadReport}
             disabled={downloading}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-stone-700 hover:bg-stone-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
           >
             <Download className={clsx("w-4 h-4", downloading && "animate-bounce")} />
             {downloading ? 'Generating...' : 'PDF Report'}
           </button>
           <button
             onClick={() => navigate('/systems/new')}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-stone-700 hover:bg-stone-600 text-white rounded-lg font-medium transition-colors"
           >
             <Upload className="w-4 h-4" />
             Upload Data
@@ -320,7 +320,7 @@ export default function SystemDetail() {
         <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-400" />
-            <p className="text-sm text-slate-300">{error}</p>
+            <p className="text-sm text-stone-300">{error}</p>
           </div>
         </div>
       )}
@@ -332,7 +332,7 @@ export default function SystemDetail() {
             <Database className="w-8 h-8 text-yellow-400 flex-shrink-0" />
             <div>
               <h3 className="font-semibold text-yellow-400 mb-1">No Data Ingested</h3>
-              <p className="text-sm text-slate-300 mb-4">
+              <p className="text-sm text-stone-300 mb-4">
                 Upload telemetry data to enable analysis, anomaly detection, and insights.
                 The AI will automatically discover your data schema and learn your system's patterns.
               </p>
@@ -350,36 +350,36 @@ export default function SystemDetail() {
       {/* Data Statistics */}
       {hasData && statistics && (
         <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
             <Database className="w-6 h-6 text-primary-400 mb-2" />
             <p className="text-2xl font-bold text-white">{statistics.total_records.toLocaleString()}</p>
-            <p className="text-sm text-slate-400">Total Records</p>
+            <p className="text-sm text-stone-400">Total Records</p>
           </div>
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
             <FileText className="w-6 h-6 text-primary-400 mb-2" />
             <p className="text-2xl font-bold text-white">{statistics.total_sources}</p>
-            <p className="text-sm text-slate-400">Data Sources</p>
+            <p className="text-sm text-stone-400">Data Sources</p>
           </div>
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
             <Activity className="w-6 h-6 text-primary-400 mb-2" />
             <p className="text-2xl font-bold text-white">{statistics.field_count}</p>
-            <p className="text-sm text-slate-400">Fields</p>
+            <p className="text-sm text-stone-400">Fields</p>
           </div>
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
             <CheckCircle className="w-6 h-6 text-green-400 mb-2" />
             <p className="text-2xl font-bold text-white">{system.status || 'Active'}</p>
-            <p className="text-sm text-slate-400">Status</p>
+            <p className="text-sm text-stone-400">Status</p>
           </div>
         </div>
       )}
 
       {/* Health Score */}
       {analysis && (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
+        <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-white mb-1">System Health</h2>
-              <p className="text-slate-400 text-sm whitespace-pre-line">
+              <p className="text-stone-400 text-sm whitespace-pre-line">
                 {analysis.insights_summary || 'Run analysis to get detailed health insights'}
               </p>
             </div>
@@ -393,7 +393,7 @@ export default function SystemDetail() {
                   {analysis.health_score.toFixed(0)}%
                 </div>
               ) : (
-                <div className="text-3xl text-slate-500">--</div>
+                <div className="text-3xl text-stone-500">--</div>
               )}
             </div>
           </div>
@@ -414,11 +414,11 @@ export default function SystemDetail() {
               Ask AI About This System
               <span className="px-2 py-0.5 bg-primary-500/20 text-primary-400 text-xs rounded-full font-medium">AI Chat</span>
             </h3>
-            <p className="text-sm text-slate-400 mt-0.5">
+            <p className="text-sm text-stone-400 mt-0.5">
               Ask questions in natural language — get insights about anomalies, data patterns, and recommendations
             </p>
           </div>
-          <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-primary-400 transition-colors" />
+          <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-primary-400 transition-colors" />
         </div>
       </Link>
 
@@ -427,7 +427,7 @@ export default function SystemDetail() {
 
       {/* AI Agents Status */}
       {analysis?.ai_analysis && (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
+        <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
               <Brain className="w-5 h-5 text-purple-400" />
@@ -437,7 +437,7 @@ export default function SystemDetail() {
               'px-3 py-1 rounded-full text-xs font-medium',
               analysis.ai_analysis.ai_powered
                 ? 'bg-purple-500/20 text-purple-400'
-                : 'bg-slate-600/50 text-slate-400'
+                : 'bg-stone-600/50 text-stone-400'
             )}>
               {analysis.ai_analysis.ai_powered ? 'LLM Powered' : 'Rule-Based Fallback'}
             </span>
@@ -458,14 +458,14 @@ export default function SystemDetail() {
                   agent.status === 'success' ? 'text-green-400' : 'text-red-400'
                 )} />
                 <p className="text-xs font-medium text-white truncate">{agent.agent}</p>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-stone-500 mt-1">
                   {agent.status === 'success' ? `${agent.findings} findings` : 'Error'}
                 </p>
               </div>
             ))}
           </div>
           {analysis.ai_analysis.total_findings_raw > 0 && (
-            <p className="text-xs text-slate-500 mt-3 text-center">
+            <p className="text-xs text-stone-500 mt-3 text-center">
               {analysis.ai_analysis.total_findings_raw} raw findings merged into{' '}
               {analysis.ai_analysis.total_anomalies_unified} unified anomalies
             </p>
@@ -481,7 +481,7 @@ export default function SystemDetail() {
 
       {/* Key Insights */}
       {analysis && analysis.insights && analysis.insights.length > 0 && (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
+        <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6">
           <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <Lightbulb className="w-5 h-5 text-yellow-500" />
             Key Insights
@@ -494,7 +494,7 @@ export default function SystemDetail() {
                   ? 'bg-red-500/10 border border-red-500/30'
                   : insight.toLowerCase().includes('warning') || insight.toLowerCase().includes('high')
                   ? 'bg-orange-500/10 border border-orange-500/30'
-                  : 'bg-slate-700/50'
+                  : 'bg-stone-700/50'
               )}>
                 <AlertCircle className={clsx(
                   'w-5 h-5 mt-0.5',
@@ -502,9 +502,9 @@ export default function SystemDetail() {
                     ? 'text-red-400'
                     : insight.toLowerCase().includes('warning') || insight.toLowerCase().includes('high')
                     ? 'text-orange-400'
-                    : 'text-slate-400'
+                    : 'text-stone-400'
                 )} />
-                <p className="text-sm text-slate-300">{insight}</p>
+                <p className="text-sm text-stone-300">{insight}</p>
               </div>
             ))}
           </div>
@@ -518,8 +518,8 @@ export default function SystemDetail() {
 
       <div className="grid grid-cols-2 gap-6">
         {/* Anomalies */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700">
-          <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+        <div className="bg-stone-800 rounded-xl border border-stone-700">
+          <div className="px-6 py-4 border-b border-stone-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-orange-500" />
               <h2 className="text-lg font-semibold text-white">Detected Anomalies</h2>
@@ -537,10 +537,10 @@ export default function SystemDetail() {
             {!analysis || analysis.anomalies.length === 0 ? (
               <div className="text-center py-8">
                 <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                <p className="text-slate-300 font-medium">
+                <p className="text-stone-300 font-medium">
                   {hasData ? 'No Anomalies Detected' : 'No Data to Analyze'}
                 </p>
-                <p className="text-slate-500 text-sm">
+                <p className="text-stone-500 text-sm">
                   {hasData
                     ? 'System is operating within normal parameters'
                     : 'Upload data and run analysis to detect anomalies'}
@@ -561,25 +561,25 @@ export default function SystemDetail() {
                 >
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="font-medium text-white">{anomaly.title}</h3>
-                    <span className="text-sm font-medium text-slate-400">
+                    <span className="text-sm font-medium text-stone-400">
                       Impact: {anomaly.impact_score.toFixed(1)}
                     </span>
                   </div>
-                  <p className="text-sm text-slate-300 mb-3">{anomaly.description}</p>
+                  <p className="text-sm text-stone-300 mb-3">{anomaly.description}</p>
 
                   {selectedAnomaly === anomaly.id && (
-                    <div className="mt-4 pt-4 border-t border-slate-600 space-y-4">
+                    <div className="mt-4 pt-4 border-t border-stone-600 space-y-4">
                       {/* Confidence indicator */}
                       {anomaly.confidence && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500">Confidence:</span>
-                          <div className="flex-1 bg-slate-700 rounded-full h-2 max-w-[100px]">
+                          <span className="text-xs text-stone-500">Confidence:</span>
+                          <div className="flex-1 bg-stone-700 rounded-full h-2 max-w-[100px]">
                             <div
                               className="bg-primary-500 h-2 rounded-full"
                               style={{ width: `${anomaly.confidence * 100}%` }}
                             />
                           </div>
-                          <span className="text-xs text-slate-400">{(anomaly.confidence * 100).toFixed(0)}%</span>
+                          <span className="text-xs text-stone-400">{(anomaly.confidence * 100).toFixed(0)}%</span>
                         </div>
                       )}
 
@@ -589,7 +589,7 @@ export default function SystemDetail() {
                           <Lightbulb className="w-4 h-4" />
                           AI Analysis
                         </h4>
-                        <p className="text-sm text-slate-300 leading-relaxed">{anomaly.natural_language_explanation}</p>
+                        <p className="text-sm text-stone-300 leading-relaxed">{anomaly.natural_language_explanation}</p>
                       </div>
 
                       {/* Possible Causes */}
@@ -603,7 +603,7 @@ export default function SystemDetail() {
                             {anomaly.possible_causes.map((cause, idx) => (
                               <li key={idx} className="flex items-start gap-2 text-sm">
                                 <span className="text-orange-400 mt-1">•</span>
-                                <span className="text-slate-300">{cause}</span>
+                                <span className="text-stone-300">{cause}</span>
                               </li>
                             ))}
                           </ul>
@@ -623,11 +623,11 @@ export default function SystemDetail() {
                                 'px-1.5 py-0.5 rounded text-xs font-medium',
                                 rec.priority === 'immediate' || rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
                                 rec.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                                'bg-slate-500/20 text-slate-400'
+                                'bg-stone-500/20 text-stone-400'
                               )}>
                                 {rec.priority}
                               </span>
-                              <span className="text-slate-300">{rec.action}</span>
+                              <span className="text-stone-300">{rec.action}</span>
                             </div>
                           ))}
                         </div>
@@ -662,9 +662,9 @@ export default function SystemDetail() {
                           </h4>
                           <div className="space-y-2">
                             {anomaly.agent_perspectives.map((p, idx) => (
-                              <div key={idx} className="p-2 bg-slate-700/50 rounded-lg">
+                              <div key={idx} className="p-2 bg-stone-700/50 rounded-lg">
                                 <span className="text-xs font-medium text-blue-300">{p.agent}:</span>
-                                <p className="text-xs text-slate-400 mt-1">{p.perspective}</p>
+                                <p className="text-xs text-stone-400 mt-1">{p.perspective}</p>
                               </div>
                             ))}
                           </div>
@@ -714,19 +714,19 @@ export default function SystemDetail() {
         </div>
 
         {/* Engineering Margins */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700">
-          <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+        <div className="bg-stone-800 rounded-xl border border-stone-700">
+          <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
             <Activity className="w-5 h-5 text-primary-500" />
             <h2 className="text-lg font-semibold text-white">Engineering Margins</h2>
           </div>
           <div className="p-4 space-y-4">
             {!analysis || analysis.engineering_margins.length === 0 ? (
               <div className="text-center py-8">
-                <Activity className="w-12 h-12 text-slate-500 mx-auto mb-3" />
-                <p className="text-slate-300 font-medium">
+                <Activity className="w-12 h-12 text-stone-500 mx-auto mb-3" />
+                <p className="text-stone-300 font-medium">
                   {hasData ? 'No Margins Calculated' : 'No Data Available'}
                 </p>
-                <p className="text-slate-500 text-sm">
+                <p className="text-stone-500 text-sm">
                   {hasData
                     ? 'Run analysis to calculate engineering margins'
                     : 'Upload numeric data to see engineering margins'}
@@ -734,11 +734,11 @@ export default function SystemDetail() {
               </div>
             ) : (
               analysis.engineering_margins.map((margin, idx) => (
-                <div key={idx} className="p-4 bg-slate-900/50 rounded-lg">
+                <div key={idx} className="p-4 bg-stone-900/50 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <h3 className="font-medium text-white">{margin.component}</h3>
-                      <p className="text-sm text-slate-400">{margin.parameter}</p>
+                      <p className="text-sm text-stone-400">{margin.parameter}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {getTrendIcon(margin.trend)}
@@ -751,10 +751,10 @@ export default function SystemDetail() {
                   </div>
                   <div className="mt-3">
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-400">Current: {margin.current_value.toFixed(2)}</span>
-                      <span className="text-slate-400">Limit: {margin.design_limit.toFixed(2)}</span>
+                      <span className="text-stone-400">Current: {margin.current_value.toFixed(2)}</span>
+                      <span className="text-stone-400">Limit: {margin.design_limit.toFixed(2)}</span>
                     </div>
-                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                    <div className="h-2 bg-stone-700 rounded-full overflow-hidden">
                       <div
                         className={clsx(
                           'h-full rounded-full',
@@ -764,7 +764,7 @@ export default function SystemDetail() {
                         style={{ width: getProgressWidth(margin.margin_percentage) }}
                       />
                     </div>
-                    <p className="text-sm text-slate-400 mt-1">
+                    <p className="text-sm text-stone-400 mt-1">
                       {margin.margin_percentage.toFixed(1)}% margin remaining
                     </p>
                   </div>
@@ -775,41 +775,41 @@ export default function SystemDetail() {
         </div>
 
         {/* Blind Spots */}
-        <div className="col-span-2 bg-slate-800 rounded-xl border border-slate-700">
-          <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+        <div className="col-span-2 bg-stone-800 rounded-xl border border-stone-700">
+          <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
             <Lightbulb className="w-5 h-5 text-yellow-500" />
             <h2 className="text-lg font-semibold text-white">Blind Spots & Recommendations</h2>
           </div>
           <div className="p-4">
             {!analysis || analysis.blind_spots.length === 0 ? (
               <div className="text-center py-8">
-                <Lightbulb className="w-12 h-12 text-slate-500 mx-auto mb-3" />
-                <p className="text-slate-300 font-medium">No Blind Spots Identified</p>
-                <p className="text-slate-500 text-sm">
+                <Lightbulb className="w-12 h-12 text-stone-500 mx-auto mb-3" />
+                <p className="text-stone-300 font-medium">No Blind Spots Identified</p>
+                <p className="text-stone-500 text-sm">
                   Run analysis with uploaded data to identify data gaps and improvement opportunities
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 {analysis.blind_spots.map((spot, idx) => (
-                  <div key={idx} className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                  <div key={idx} className="p-4 bg-stone-900/50 rounded-lg border border-stone-700">
                     <h3 className="font-medium text-white mb-2">{spot.title}</h3>
-                    <p className="text-sm text-slate-300 mb-4">{spot.description}</p>
+                    <p className="text-sm text-stone-300 mb-4">{spot.description}</p>
                     {spot.recommended_sensor && (
-                      <div className="p-3 bg-slate-800 rounded-lg">
+                      <div className="p-3 bg-stone-800 rounded-lg">
                         <h4 className="text-sm font-medium text-primary-400 mb-2">Recommended Sensor</h4>
                         <div className="grid grid-cols-2 gap-2 text-sm">
-                          <span className="text-slate-400">Type:</span>
+                          <span className="text-stone-400">Type:</span>
                           <span className="text-white">{spot.recommended_sensor.type}</span>
-                          <span className="text-slate-400">Spec:</span>
+                          <span className="text-stone-400">Spec:</span>
                           <span className="text-white">{spot.recommended_sensor.specification}</span>
-                          <span className="text-slate-400">Cost:</span>
+                          <span className="text-stone-400">Cost:</span>
                           <span className="text-white">${spot.recommended_sensor.estimated_cost}</span>
                         </div>
                       </div>
                     )}
                     <div className="mt-3 text-sm">
-                      <span className="text-slate-400">Coverage Gain: </span>
+                      <span className="text-stone-400">Coverage Gain: </span>
                       <span className="text-green-400">+{spot.diagnostic_coverage_improvement}%</span>
                     </div>
                   </div>
@@ -821,15 +821,15 @@ export default function SystemDetail() {
 
         {/* Field Statistics */}
         {hasData && statistics && statistics.fields.length > 0 && (
-          <div className="col-span-2 bg-slate-800 rounded-xl border border-slate-700">
-            <div className="px-6 py-4 border-b border-slate-700 flex items-center gap-2">
+          <div className="col-span-2 bg-stone-800 rounded-xl border border-stone-700">
+            <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
               <Database className="w-5 h-5 text-primary-500" />
               <h2 className="text-lg font-semibold text-white">Field Statistics</h2>
             </div>
             <div className="p-4 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-slate-400 border-b border-slate-700">
+                  <tr className="text-left text-stone-400 border-b border-stone-700">
                     <th className="pb-3 pr-4">Field Name</th>
                     <th className="pb-3 pr-4">Type</th>
                     <th className="pb-3 pr-4">Unique Values</th>
@@ -841,7 +841,7 @@ export default function SystemDetail() {
                 </thead>
                 <tbody>
                   {statistics.fields.map((field, idx) => (
-                    <tr key={idx} className="border-b border-slate-700/50 text-slate-300">
+                    <tr key={idx} className="border-b border-stone-700/50 text-stone-300">
                       <td className="py-3 pr-4 font-mono text-white">{field.name}</td>
                       <td className="py-3 pr-4">{field.type}</td>
                       <td className="py-3 pr-4">{field.unique_count}</td>

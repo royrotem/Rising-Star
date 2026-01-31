@@ -82,29 +82,29 @@ export function FeedbackButtons({
       type: 'relevant',
       label: 'Relevant',
       icon: <ThumbsUp className="w-3.5 h-3.5" />,
-      color: 'hover:bg-green-500/20 hover:text-green-400 text-slate-400',
+      color: 'hover:bg-green-500/20 hover:text-green-400 text-stone-400',
       activeColor: 'bg-green-500/20 text-green-400 border-green-500/50',
     },
     {
       type: 'false_positive',
       label: 'False Positive',
       icon: <ThumbsDown className="w-3.5 h-3.5" />,
-      color: 'hover:bg-red-500/20 hover:text-red-400 text-slate-400',
+      color: 'hover:bg-red-500/20 hover:text-red-400 text-stone-400',
       activeColor: 'bg-red-500/20 text-red-400 border-red-500/50',
     },
     {
       type: 'already_known',
       label: 'Already Known',
       icon: <Clock className="w-3.5 h-3.5" />,
-      color: 'hover:bg-yellow-500/20 hover:text-yellow-400 text-slate-400',
+      color: 'hover:bg-yellow-500/20 hover:text-yellow-400 text-stone-400',
       activeColor: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50',
     },
   ];
 
   return (
-    <div className="mt-3 pt-3 border-t border-slate-600/50">
+    <div className="mt-3 pt-3 border-t border-stone-600/50">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-slate-500 mr-1">Feedback:</span>
+        <span className="text-xs text-stone-500 mr-1">Feedback:</span>
         {buttons.map((btn) => (
           <button
             key={btn.type}
@@ -117,7 +117,7 @@ export function FeedbackButtons({
               'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all',
               submitted === btn.type
                 ? btn.activeColor
-                : `border-slate-600 ${btn.color}`,
+                : `border-stone-600 ${btn.color}`,
               loading && 'opacity-50 cursor-not-allowed'
             )}
           >
@@ -132,13 +132,13 @@ export function FeedbackButtons({
             e.stopPropagation();
             setShowComment(!showComment);
           }}
-          className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-stone-500 hover:text-stone-300 transition-colors"
         >
           <MessageSquare className="w-3.5 h-3.5" />
         </button>
 
         {existingFeedback.length > 0 && (
-          <span className="text-xs text-slate-600 ml-auto">
+          <span className="text-xs text-stone-600 ml-auto">
             {existingFeedback.length} review{existingFeedback.length !== 1 ? 's' : ''}
           </span>
         )}
@@ -152,7 +152,7 @@ export function FeedbackButtons({
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Add a comment (optional)..."
-            className="flex-1 bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            className="flex-1 bg-stone-700/50 border border-stone-600 rounded-lg px-3 py-1.5 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && submitted) {
                 handleSubmit(submitted);
@@ -161,7 +161,7 @@ export function FeedbackButtons({
           />
           <button
             onClick={() => setShowComment(false)}
-            className="p-1.5 text-slate-500 hover:text-slate-300"
+            className="p-1.5 text-stone-500 hover:text-stone-300"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -192,7 +192,7 @@ export function FeedbackSummaryBanner({ systemId }: FeedbackSummaryBannerProps) 
   const { by_type, false_positive_rate, confidence_score, total_feedback } = summary;
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 mb-6">
+    <div className="bg-stone-800 rounded-xl border border-stone-700 p-4 mb-6">
       <div
         className="flex items-center justify-between cursor-pointer"
         onClick={() => setExpanded(!expanded)}
@@ -201,7 +201,7 @@ export function FeedbackSummaryBanner({ systemId }: FeedbackSummaryBannerProps) 
           <TrendingUp className="w-5 h-5 text-primary-400" />
           <div>
             <h3 className="text-sm font-semibold text-white">Anomaly Feedback Loop</h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-stone-400">
               {total_feedback} reviews submitted
               {confidence_score !== null && (
                 <> &middot; System confidence: <span className={clsx(
@@ -227,19 +227,19 @@ export function FeedbackSummaryBanner({ systemId }: FeedbackSummaryBannerProps) 
             </span>
           </div>
           {expanded ? (
-            <ChevronUp className="w-4 h-4 text-slate-400" />
+            <ChevronUp className="w-4 h-4 text-stone-400" />
           ) : (
-            <ChevronDown className="w-4 h-4 text-slate-400" />
+            <ChevronDown className="w-4 h-4 text-stone-400" />
           )}
         </div>
       </div>
 
       {expanded && (
-        <div className="mt-4 pt-4 border-t border-slate-700 space-y-3">
+        <div className="mt-4 pt-4 border-t border-stone-700 space-y-3">
           {/* False positive rate bar */}
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-slate-400">False Positive Rate</span>
+              <span className="text-stone-400">False Positive Rate</span>
               <span className={clsx(
                 'font-medium',
                 false_positive_rate <= 0.1 ? 'text-green-400' :
@@ -248,7 +248,7 @@ export function FeedbackSummaryBanner({ systemId }: FeedbackSummaryBannerProps) 
                 {(false_positive_rate * 100).toFixed(1)}%
               </span>
             </div>
-            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div className="h-2 bg-stone-700 rounded-full overflow-hidden">
               <div
                 className={clsx(
                   'h-full rounded-full transition-all',
@@ -263,15 +263,15 @@ export function FeedbackSummaryBanner({ systemId }: FeedbackSummaryBannerProps) 
           {/* False positive patterns */}
           {summary.false_positive_patterns.length > 0 && (
             <div>
-              <h4 className="text-xs font-medium text-slate-400 mb-2">Detection Accuracy by Type</h4>
+              <h4 className="text-xs font-medium text-stone-400 mb-2">Detection Accuracy by Type</h4>
               <div className="space-y-1.5">
                 {summary.false_positive_patterns.slice(0, 5).map((pattern, idx) => (
                   <div key={idx} className="flex items-center justify-between text-xs">
-                    <span className="text-slate-300 font-mono">
+                    <span className="text-stone-300 font-mono">
                       {pattern.anomaly_type.replace(/_/g, ' ')}
                     </span>
                     <div className="flex items-center gap-2">
-                      <span className="text-slate-500">{pattern.total} reviews</span>
+                      <span className="text-stone-500">{pattern.total} reviews</span>
                       <span className={clsx(
                         'font-medium',
                         pattern.false_positive_rate <= 0.2 ? 'text-green-400' :
@@ -290,7 +290,7 @@ export function FeedbackSummaryBanner({ systemId }: FeedbackSummaryBannerProps) 
           {confidence_score !== null && confidence_score < 0.8 && (
             <div className="flex items-start gap-2 p-2 bg-yellow-500/5 border border-yellow-500/20 rounded-lg">
               <AlertCircle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-stone-400">
                 Continue reviewing anomalies to improve detection accuracy.
                 The system adapts its thresholds based on your feedback.
               </p>

@@ -110,7 +110,7 @@ export default function OnboardingGuide({ systemCount, hasAnalyzed }: Onboarding
   };
 
   return (
-    <div className="mb-8 bg-gradient-to-br from-primary-500/5 via-slate-800/50 to-accent-500/5 border border-primary-500/20 rounded-2xl overflow-hidden animate-fadeIn">
+    <div className="mb-8 bg-gradient-to-br from-primary-500/5 via-stone-800/50 to-accent-500/5 border border-primary-500/20 rounded-2xl overflow-hidden animate-fadeIn">
       {/* Header */}
       <div className="px-6 py-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -119,7 +119,7 @@ export default function OnboardingGuide({ systemCount, hasAnalyzed }: Onboarding
           </div>
           <div>
             <h2 className="text-lg font-semibold text-white">Welcome to UAIE</h2>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-stone-400">
               Follow these steps to get the most out of the platform
             </p>
           </div>
@@ -127,17 +127,17 @@ export default function OnboardingGuide({ systemCount, hasAnalyzed }: Onboarding
         <div className="flex items-center gap-4">
           {/* Progress */}
           <div className="flex items-center gap-2">
-            <div className="w-24 h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div className="w-24 h-2 bg-stone-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-primary-500 to-accent-500 rounded-full transition-all duration-500"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <span className="text-xs text-slate-400">{completedCount}/{steps.length}</span>
+            <span className="text-xs text-stone-400">{completedCount}/{steps.length}</span>
           </div>
           <button
             onClick={handleDismiss}
-            className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors text-slate-500 hover:text-slate-300"
+            className="p-1.5 hover:bg-stone-700 rounded-lg transition-colors text-stone-500 hover:text-stone-300"
             title="Dismiss guide"
           >
             <X className="w-4 h-4" />
@@ -156,19 +156,19 @@ export default function OnboardingGuide({ systemCount, hasAnalyzed }: Onboarding
                 'p-4 rounded-xl border transition-all',
                 done
                   ? 'bg-accent-500/5 border-accent-500/20'
-                  : 'bg-slate-800/60 border-slate-700/50 hover:border-primary-500/30'
+                  : 'bg-stone-800/60 border-stone-700/50 hover:border-primary-500/30'
               )}
             >
               <div className="flex items-start gap-3">
                 <div className={clsx(
                   'p-2 rounded-lg flex-shrink-0',
-                  done ? 'bg-accent-500/10 text-accent-400' : 'bg-slate-700/50 text-slate-400'
+                  done ? 'bg-accent-500/10 text-accent-400' : 'bg-stone-700/50 text-stone-400'
                 )}>
                   {done ? <CheckCircle2 className="w-5 h-5" /> : step.icon}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 font-medium">Step {idx + 1}</span>
+                    <span className="text-xs text-stone-500 font-medium">Step {idx + 1}</span>
                     {done && (
                       <span className="text-xs text-accent-400 font-medium">Done</span>
                     )}
@@ -179,7 +179,7 @@ export default function OnboardingGuide({ systemCount, hasAnalyzed }: Onboarding
                   )}>
                     {step.title}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  <p className="text-xs text-stone-500 mt-1 leading-relaxed">
                     {step.description}
                   </p>
                   {!done && step.action && (

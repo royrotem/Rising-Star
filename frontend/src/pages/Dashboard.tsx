@@ -116,7 +116,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-          <p className="text-slate-400 mt-1 text-sm">
+          <p className="text-stone-400 mt-1 text-sm">
             Monitor your fleet and track critical issues
           </p>
         </div>
@@ -134,7 +134,7 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-4 gap-5 mb-8">
-        <div className="stat-card" style={{ '--stat-accent': '#6366f1' } as React.CSSProperties}>
+        <div className="stat-card" style={{ '--stat-accent': '#da7756' } as React.CSSProperties}>
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-primary-500/10 rounded-xl">
               <Server className="w-5 h-5 text-primary-400" />
@@ -145,7 +145,7 @@ export default function Dashboard() {
               ) : (
                 <p className="text-2xl font-bold text-white">{systems.length}</p>
               )}
-              <p className="text-xs text-slate-500 font-medium">Active Systems</p>
+              <p className="text-xs text-stone-500 font-medium">Active Systems</p>
             </div>
           </div>
         </div>
@@ -161,7 +161,7 @@ export default function Dashboard() {
               ) : (
                 <p className="text-2xl font-bold text-white">{anomalyCount}</p>
               )}
-              <p className="text-xs text-slate-500 font-medium">Active Anomalies</p>
+              <p className="text-xs text-stone-500 font-medium">Active Anomalies</p>
             </div>
           </div>
         </div>
@@ -177,7 +177,7 @@ export default function Dashboard() {
               ) : (
                 <p className="text-2xl font-bold text-white">{avgHealthScore}%</p>
               )}
-              <p className="text-xs text-slate-500 font-medium">Avg Health Score</p>
+              <p className="text-xs text-stone-500 font-medium">Avg Health Score</p>
             </div>
           </div>
         </div>
@@ -189,7 +189,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-2xl font-bold text-white">2</p>
-              <p className="text-xs text-slate-500 font-medium">Margins Degrading</p>
+              <p className="text-xs text-stone-500 font-medium">Margins Degrading</p>
             </div>
           </div>
         </div>
@@ -198,12 +198,12 @@ export default function Dashboard() {
       <div className="grid grid-cols-3 gap-6">
         {/* 80/20 Impact Radar */}
         <div className="col-span-2 glass-card overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-700/50">
+          <div className="px-6 py-4 border-b border-stone-700/50">
             <div className="flex items-center gap-2">
               <Target className="w-5 h-5 text-primary-400" />
               <h2 className="text-base font-semibold text-white">80/20 Impact Radar</h2>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-stone-500 mt-1">
               Focus on the 20% of issues causing 80% of impact
             </p>
           </div>
@@ -213,15 +213,15 @@ export default function Dashboard() {
                 <Link
                   key={issue.rank}
                   to={`/systems/1`}
-                  className="flex items-center gap-4 p-4 bg-slate-900/40 rounded-xl border border-slate-700/40 hover:border-primary-500/30 transition-all duration-200 group"
+                  className="flex items-center gap-4 p-4 bg-stone-900/40 rounded-xl border border-stone-700/40 hover:border-primary-500/30 transition-all duration-200 group"
                   style={{ animationDelay: `${idx * 100}ms` }}
                 >
-                  <div className="flex items-center justify-center w-9 h-9 bg-slate-800 rounded-lg text-sm font-bold text-slate-400 group-hover:bg-primary-500/10 group-hover:text-primary-400 transition-all duration-200">
+                  <div className="flex items-center justify-center w-9 h-9 bg-stone-800 rounded-lg text-sm font-bold text-stone-400 group-hover:bg-primary-500/10 group-hover:text-primary-400 transition-all duration-200">
                     {issue.rank}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-sm text-white group-hover:text-primary-300 transition-colors truncate">{issue.title}</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-stone-500 mt-0.5">
                       Affecting {issue.affected_percentage}% of fleet
                     </p>
                   </div>
@@ -232,7 +232,7 @@ export default function Dashboard() {
                     )}>
                       {issue.impact_score}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-primary-400 transition-colors" />
+                    <ChevronRight className="w-4 h-4 text-stone-600 group-hover:text-primary-400 transition-colors" />
                   </div>
                 </Link>
               ))}
@@ -242,7 +242,7 @@ export default function Dashboard() {
 
         {/* Systems List */}
         <div className="glass-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+          <div className="px-5 py-4 border-b border-stone-700/50 flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Systems</h2>
             <Link
               to="/systems"
@@ -259,10 +259,10 @@ export default function Dashboard() {
               </div>
             ) : systems.length === 0 ? (
               <div className="text-center py-10">
-                <div className="p-3 bg-slate-800/50 rounded-xl inline-block mb-3">
-                  <Server className="w-7 h-7 text-slate-600" />
+                <div className="p-3 bg-stone-800/50 rounded-xl inline-block mb-3">
+                  <Server className="w-7 h-7 text-stone-600" />
                 </div>
-                <p className="text-slate-400 text-sm font-medium">No systems yet</p>
+                <p className="text-stone-400 text-sm font-medium">No systems yet</p>
                 <Link
                   to="/systems/new"
                   className="text-primary-400 text-xs hover:text-primary-300 mt-1 inline-block"
@@ -276,7 +276,7 @@ export default function Dashboard() {
                   <Link
                     key={system.id}
                     to={`/systems/${system.id}`}
-                    className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-800/60 transition-all duration-200 group"
+                    className="flex items-center justify-between p-3 rounded-lg hover:bg-stone-800/60 transition-all duration-200 group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={clsx(
@@ -287,7 +287,7 @@ export default function Dashboard() {
                         <p className="font-medium text-sm text-white group-hover:text-primary-300 transition-colors truncate">
                           {system.name}
                         </p>
-                        <p className="text-xs text-slate-500 capitalize">{system.system_type.replace('_', ' ')}</p>
+                        <p className="text-xs text-stone-500 capitalize">{system.system_type.replace('_', ' ')}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -302,7 +302,7 @@ export default function Dashboard() {
                       )}>
                         {system.health_score}%
                       </span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400" />
+                      <ChevronRight className="w-3.5 h-3.5 text-stone-600 group-hover:text-stone-400" />
                     </div>
                   </Link>
                 ))}
@@ -319,7 +319,7 @@ export default function Dashboard() {
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium text-white">AI-Powered Analysis</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-stone-500 mt-0.5">
             13 specialized agents analyze your data across statistical, domain, pattern, temporal, predictive, safety, compliance, and more
           </p>
         </div>

@@ -14,8 +14,8 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #080e1e;
-  color: #e2e8f0;
+  background-color: #0c0a09;
+  color: #e7e5e4;
 }
 
 /* Custom scrollbar */
@@ -29,12 +29,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #44403c;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #57534e;
 }
 
 /* Animations */
@@ -54,7 +54,7 @@ body {
 /* Glass card utility */
 @layer components {
   .glass-card {
-    @apply bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 rounded-xl;
+    @apply bg-stone-800/60 backdrop-blur-sm border border-stone-700/50 rounded-xl;
   }
 
   .glass-card-hover {
@@ -63,7 +63,7 @@ body {
 
   .glass-card-hover:hover {
     @apply border-primary-500/30;
-    box-shadow: 0 4px 20px -4px rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 20px -4px rgba(218, 119, 86, 0.12);
   }
 
   /* Gradient text */
@@ -73,11 +73,11 @@ body {
 
   /* Stat card with top-accent bar on hover */
   .stat-card {
-    @apply relative overflow-hidden bg-slate-800/80 rounded-xl p-5 border border-slate-700/50 transition-all duration-300;
+    @apply relative overflow-hidden bg-stone-800/80 rounded-xl p-5 border border-stone-700/50 transition-all duration-300;
   }
 
   .stat-card:hover {
-    @apply border-slate-600/80;
+    @apply border-stone-600/80;
     transform: translateY(-2px);
     box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.3);
   }
@@ -85,7 +85,7 @@ body {
   .stat-card::before {
     content: '';
     @apply absolute top-0 left-0 right-0 h-[2px] rounded-t-xl;
-    background: linear-gradient(90deg, transparent, var(--stat-accent, #6366f1), transparent);
+    background: linear-gradient(90deg, transparent, var(--stat-accent, #da7756), transparent);
     opacity: 0;
     transition: opacity 0.3s;
   }

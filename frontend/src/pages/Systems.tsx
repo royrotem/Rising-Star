@@ -99,7 +99,7 @@ export default function Systems() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white">Systems</h1>
-          <p className="text-slate-400 mt-1">
+          <p className="text-stone-400 mt-1">
             Manage and monitor your connected systems
           </p>
         </div>
@@ -109,8 +109,8 @@ export default function Systems() {
             className={clsx(
               'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
               showDemo
-                ? 'bg-slate-700 hover:bg-slate-600 text-white'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+                ? 'bg-stone-700 hover:bg-stone-600 text-white'
+                : 'bg-stone-800 hover:bg-stone-700 text-stone-400'
             )}
           >
             {showDemo ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
@@ -131,20 +131,20 @@ export default function Systems() {
         <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-400" />
-            <p className="text-sm text-slate-300">{error}</p>
+            <p className="text-sm text-stone-300">{error}</p>
           </div>
         </div>
       )}
 
       {/* Search */}
       <div className="relative mb-6">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <Search className="absolute left-3 top-1/2 -transtone-y-1/2 w-5 h-5 text-stone-400" />
         <input
           type="text"
           placeholder="Search systems..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 transition-colors"
+          className="w-full pl-10 pr-4 py-3 bg-stone-800 border border-stone-700 rounded-lg text-white placeholder-stone-500 focus:outline-none focus:border-primary-500 transition-colors"
         />
       </div>
 
@@ -155,8 +155,8 @@ export default function Systems() {
         </div>
       ) : filteredSystems.length === 0 ? (
         <div className="text-center py-12">
-          <Server className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-          <p className="text-slate-400 mb-2">No systems found</p>
+          <Server className="w-12 h-12 text-stone-600 mx-auto mb-4" />
+          <p className="text-stone-400 mb-2">No systems found</p>
           <button
             onClick={() => navigate('/systems/new')}
             className="text-primary-400 hover:text-primary-300 font-medium"
@@ -179,7 +179,7 @@ export default function Systems() {
                     <Link
                       key={system.id}
                       to={`/systems/${system.id}`}
-                      className="bg-slate-800 rounded-xl border border-slate-700 p-6 hover:border-primary-500/50 transition-colors group relative"
+                      className="bg-stone-800 rounded-xl border border-stone-700 p-6 hover:border-primary-500/50 transition-colors group relative"
                     >
                       <button
                         onClick={(e) => handleDeleteSystem(e, system.id)}
@@ -190,12 +190,12 @@ export default function Systems() {
                       </button>
 
                       <div className="flex items-start justify-between mb-4">
-                        <div className="p-3 bg-slate-700 rounded-lg group-hover:bg-primary-500/10 transition-colors">
-                          <Icon className="w-6 h-6 text-slate-300 group-hover:text-primary-400 transition-colors" />
+                        <div className="p-3 bg-stone-700 rounded-lg group-hover:bg-primary-500/10 transition-colors">
+                          <Icon className="w-6 h-6 text-stone-300 group-hover:text-primary-400 transition-colors" />
                         </div>
                         <div className="flex items-center gap-2">
                           <div className={clsx('w-2 h-2 rounded-full', getStatusColor(system.status))} />
-                          <span className="text-sm text-slate-400 capitalize">
+                          <span className="text-sm text-stone-400 capitalize">
                             {system.status.replace('_', ' ')}
                           </span>
                         </div>
@@ -204,14 +204,14 @@ export default function Systems() {
                       <h3 className="text-lg font-semibold text-white mb-1 group-hover:text-primary-400 transition-colors">
                         {system.name}
                       </h3>
-                      <p className="text-sm text-slate-400 mb-4 capitalize">
+                      <p className="text-sm text-stone-400 mb-4 capitalize">
                         {system.system_type.replace('_', ' ')}
                       </p>
 
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-2">
-                            <Activity className="w-4 h-4 text-slate-500" />
+                            <Activity className="w-4 h-4 text-stone-500" />
                             <span className={clsx('font-medium', getHealthColor(system.health_score))}>
                               {system.health_score !== undefined && system.health_score !== null
                                 ? `${system.health_score}% Health`
@@ -224,7 +224,7 @@ export default function Systems() {
                             </span>
                           )}
                         </div>
-                        <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-primary-400 transition-colors" />
+                        <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-primary-400 transition-colors" />
                       </div>
                     </Link>
                   );
@@ -236,9 +236,9 @@ export default function Systems() {
           {/* Demo Systems */}
           {showDemo && demoSystems.length > 0 && (
             <div>
-              <h2 className="text-lg font-semibold text-slate-400 mb-4 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-stone-400 mb-4 flex items-center gap-2">
                 Demo Systems ({demoSystems.length})
-                <span className="text-xs px-2 py-0.5 bg-slate-700 rounded">For testing</span>
+                <span className="text-xs px-2 py-0.5 bg-stone-700 rounded">For testing</span>
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {demoSystems.map((system) => {
@@ -247,33 +247,33 @@ export default function Systems() {
                     <Link
                       key={system.id}
                       to={`/systems/${system.id}`}
-                      className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-6 hover:border-slate-600 transition-colors group opacity-75 hover:opacity-100"
+                      className="bg-stone-800/50 rounded-xl border border-stone-700/50 p-6 hover:border-stone-600 transition-colors group opacity-75 hover:opacity-100"
                     >
                       <div className="flex items-start justify-between mb-4">
-                        <div className="p-3 bg-slate-700/50 rounded-lg group-hover:bg-slate-700 transition-colors">
-                          <Icon className="w-6 h-6 text-slate-400 group-hover:text-slate-300 transition-colors" />
+                        <div className="p-3 bg-stone-700/50 rounded-lg group-hover:bg-stone-700 transition-colors">
+                          <Icon className="w-6 h-6 text-stone-400 group-hover:text-stone-300 transition-colors" />
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-0.5 bg-slate-700 text-slate-400 rounded">Demo</span>
+                          <span className="text-xs px-2 py-0.5 bg-stone-700 text-stone-400 rounded">Demo</span>
                           <div className={clsx('w-2 h-2 rounded-full', getStatusColor(system.status))} />
                         </div>
                       </div>
 
-                      <h3 className="text-lg font-semibold text-slate-300 mb-1 group-hover:text-white transition-colors">
+                      <h3 className="text-lg font-semibold text-stone-300 mb-1 group-hover:text-white transition-colors">
                         {system.name}
                       </h3>
-                      <p className="text-sm text-slate-500 mb-4 capitalize">
+                      <p className="text-sm text-stone-500 mb-4 capitalize">
                         {system.system_type.replace('_', ' ')}
                       </p>
 
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <Activity className="w-4 h-4 text-slate-600" />
+                          <Activity className="w-4 h-4 text-stone-600" />
                           <span className={clsx('font-medium', getHealthColor(system.health_score))}>
                             {system.health_score}% Health
                           </span>
                         </div>
-                        <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-slate-400 transition-colors" />
+                        <ChevronRight className="w-5 h-5 text-stone-600 group-hover:text-stone-400 transition-colors" />
                       </div>
                     </Link>
                   );
@@ -284,10 +284,10 @@ export default function Systems() {
 
           {/* Empty state for real systems */}
           {realSystems.length === 0 && demoSystems.length > 0 && (
-            <div className="bg-slate-800/50 rounded-xl border border-dashed border-slate-600 p-8 text-center">
-              <Server className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+            <div className="bg-stone-800/50 rounded-xl border border-dashed border-stone-600 p-8 text-center">
+              <Server className="w-12 h-12 text-stone-600 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-white mb-2">No Real Systems Yet</h3>
-              <p className="text-slate-400 mb-4 max-w-md mx-auto">
+              <p className="text-stone-400 mb-4 max-w-md mx-auto">
                 The systems above are demos for testing. Add your first real system to start analyzing your own data.
               </p>
               <button

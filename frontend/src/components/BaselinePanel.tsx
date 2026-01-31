@@ -105,14 +105,14 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
   const hasHistory = history.length > 0;
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 mb-6">
+    <div className="bg-stone-800 rounded-xl border border-stone-700 mb-6">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-stone-700 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <History className="w-5 h-5 text-primary-400" />
           <h2 className="text-lg font-semibold text-white">Baseline & Historical</h2>
           {hasHistory && (
-            <span className="text-xs text-slate-500 ml-2">
+            <span className="text-xs text-stone-500 ml-2">
               {history.length} snapshot{history.length !== 1 ? 's' : ''}
             </span>
           )}
@@ -130,7 +130,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
             <button
               onClick={handleCompare}
               disabled={comparing}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 hover:bg-stone-600 text-stone-300 text-sm rounded-lg transition-colors disabled:opacity-50"
             >
               {comparing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BarChart3 className="w-3.5 h-3.5" />}
               Compare to Baseline
@@ -156,9 +156,9 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
       {/* No history state */}
       {!loading && !hasHistory && (
         <div className="px-6 py-8 text-center">
-          <History className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm mb-1">No snapshots captured yet</p>
-          <p className="text-slate-500 text-xs">
+          <History className="w-10 h-10 text-stone-600 mx-auto mb-3" />
+          <p className="text-stone-400 text-sm mb-1">No snapshots captured yet</p>
+          <p className="text-stone-500 text-xs">
             Capture snapshots periodically to track changes over time and detect deviations from baseline
           </p>
         </div>
@@ -169,11 +169,11 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
         <div className="px-6 py-4">
           <div className="flex items-center gap-4 mb-3">
             <div>
-              <p className="text-xs text-slate-500">Health Score Trend</p>
+              <p className="text-xs text-stone-500">Health Score Trend</p>
               <div className="flex items-center gap-2 mt-1">
                 {history.slice(0, 10).reverse().map((snap, i) => {
                   const score = snap.health_score;
-                  if (score == null) return <Minus key={i} className="w-3 h-3 text-slate-600" />;
+                  if (score == null) return <Minus key={i} className="w-3 h-3 text-stone-600" />;
                   const color = score >= 90 ? 'bg-green-500' : score >= 70 ? 'bg-yellow-500' : 'bg-red-500';
                   const height = Math.max(8, (score / 100) * 28);
                   return (
@@ -188,7 +188,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
               </div>
             </div>
             <div className="ml-auto text-right">
-              <p className="text-xs text-slate-500">Anomaly Count Trend</p>
+              <p className="text-xs text-stone-500">Anomaly Count Trend</p>
               <div className="flex items-center gap-2 mt-1">
                 {history.slice(0, 10).reverse().map((snap, i) => {
                   const count = snap.anomaly_count;
@@ -210,7 +210,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
           {/* Toggle history details */}
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="flex items-center gap-1 text-xs text-stone-500 hover:text-stone-300 transition-colors"
           >
             {showHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             {showHistory ? 'Hide' : 'Show'} snapshot history
@@ -221,7 +221,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-slate-500 border-b border-slate-700">
+                  <tr className="text-stone-500 border-b border-stone-700">
                     <th className="pb-2 text-left">Date</th>
                     <th className="pb-2 text-right">Health</th>
                     <th className="pb-2 text-right">Records</th>
@@ -231,7 +231,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
                 </thead>
                 <tbody>
                   {history.slice(0, 15).map((snap) => (
-                    <tr key={snap.id} className="border-b border-slate-700/50 text-slate-300">
+                    <tr key={snap.id} className="border-b border-stone-700/50 text-stone-300">
                       <td className="py-1.5">{new Date(snap.timestamp).toLocaleString()}</td>
                       <td className="py-1.5 text-right">
                         {snap.health_score != null ? (
@@ -264,7 +264,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
 
       {/* Comparison Results */}
       {comparison && expanded && (
-        <div className="px-6 py-4 border-t border-slate-700">
+        <div className="px-6 py-4 border-t border-stone-700">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-primary-400" />
@@ -272,14 +272,14 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
             </h3>
             <button
               onClick={() => setExpanded(false)}
-              className="text-xs text-slate-500 hover:text-slate-300"
+              className="text-xs text-stone-500 hover:text-stone-300"
             >
               Hide
             </button>
           </div>
 
           {comparison.status === 'no_baseline' || comparison.status === 'no_data' ? (
-            <p className="text-sm text-slate-400">{comparison.message}</p>
+            <p className="text-sm text-stone-400">{comparison.message}</p>
           ) : (
             <>
               {/* Summary badges */}
@@ -306,7 +306,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
                     <span className="text-sm text-green-400 font-medium">All within baseline</span>
                   </div>
                 )}
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-stone-500">
                   Based on {comparison.snapshot_count} snapshots
                 </span>
               </div>
@@ -316,7 +316,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="text-slate-500 border-b border-slate-700">
+                      <tr className="text-stone-500 border-b border-stone-700">
                         <th className="pb-2 text-left">Field</th>
                         <th className="pb-2 text-right">Current</th>
                         <th className="pb-2 text-right">Baseline</th>
@@ -327,15 +327,15 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
                     </thead>
                     <tbody>
                       {comparison.deviations.slice(0, 15).map((dev) => (
-                        <tr key={dev.field} className="border-b border-slate-700/50">
-                          <td className="py-1.5 text-slate-200 font-mono">{dev.field}</td>
-                          <td className="py-1.5 text-right text-slate-300">{dev.current_mean}</td>
-                          <td className="py-1.5 text-right text-slate-400">{dev.baseline_mean}</td>
+                        <tr key={dev.field} className="border-b border-stone-700/50">
+                          <td className="py-1.5 text-stone-200 font-mono">{dev.field}</td>
+                          <td className="py-1.5 text-right text-stone-300">{dev.current_mean}</td>
+                          <td className="py-1.5 text-right text-stone-400">{dev.baseline_mean}</td>
                           <td className="py-1.5 text-right">
                             <span className={clsx(
                               'flex items-center justify-end gap-1',
                               dev.pct_change > 5 ? 'text-red-400' :
-                              dev.pct_change < -5 ? 'text-blue-400' : 'text-slate-400'
+                              dev.pct_change < -5 ? 'text-blue-400' : 'text-stone-400'
                             )}>
                               {dev.pct_change > 0 ? (
                                 <TrendingUp className="w-3 h-3" />
@@ -345,7 +345,7 @@ export default function BaselinePanel({ systemId }: BaselinePanelProps) {
                               {dev.pct_change > 0 ? '+' : ''}{dev.pct_change}%
                             </span>
                           </td>
-                          <td className="py-1.5 text-right text-slate-300">{dev.z_deviation}</td>
+                          <td className="py-1.5 text-right text-stone-300">{dev.z_deviation}</td>
                           <td className="py-1.5 text-center">
                             <DeviationBadge status={dev.status} />
                           </td>

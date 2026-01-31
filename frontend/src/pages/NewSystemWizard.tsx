@@ -294,12 +294,12 @@ export default function NewSystemWizard() {
       case 1:
         return (
           <div className="space-y-6">
-            <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
+            <div className="bg-stone-900/50 rounded-lg p-4 border border-stone-700">
               <div className="flex items-start gap-3">
                 <Database className="w-5 h-5 text-primary-400 mt-0.5" />
                 <div>
                   <h3 className="font-medium text-white">Data Pool</h3>
-                  <p className="text-sm text-slate-400 mt-1">
+                  <p className="text-sm text-stone-400 mt-1">
                     Upload all relevant data files. Our AI will automatically discover relationships
                     between files, understand the data structure, and infer the system type.
                     You can upload telemetry data, logs, configuration files, or even documentation.
@@ -311,7 +311,7 @@ export default function NewSystemWizard() {
             <div
               className={clsx(
                 'border-2 border-dashed rounded-xl p-8 text-center transition-all',
-                'border-slate-600 hover:border-slate-500 cursor-pointer'
+                'border-stone-600 hover:border-stone-500 cursor-pointer'
               )}
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleFileDrop}
@@ -325,12 +325,12 @@ export default function NewSystemWizard() {
                 onChange={handleFileSelect}
               />
               <label htmlFor="file-upload" className="cursor-pointer block">
-                <Upload className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                <Upload className="w-12 h-12 text-stone-400 mx-auto mb-4" />
                 <p className="text-lg font-medium text-white">Drop files here or click to browse</p>
-                <p className="text-slate-400 mt-1">
+                <p className="text-stone-400 mt-1">
                   Upload multiple files at once
                 </p>
-                <p className="text-sm text-slate-500 mt-2">
+                <p className="text-sm text-stone-500 mt-2">
                   Supported: CSV, JSON, JSONL, Parquet, Excel, Text, Markdown, Log files
                 </p>
               </label>
@@ -339,7 +339,7 @@ export default function NewSystemWizard() {
             {/* Uploaded files list */}
             {uploadedFiles.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-sm font-medium text-slate-300">
+                <h4 className="text-sm font-medium text-stone-300">
                   Files in Data Pool ({uploadedFiles.length})
                 </h4>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -348,20 +348,20 @@ export default function NewSystemWizard() {
                     return (
                       <div
                         key={uf.id}
-                        className="flex items-center gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700"
+                        className="flex items-center gap-3 p-3 bg-stone-900/50 rounded-lg border border-stone-700"
                       >
                         <FileIcon className="w-5 h-5 text-primary-400" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-white truncate">{uf.file.name}</p>
-                          <p className="text-xs text-slate-400">
+                          <p className="text-xs text-stone-400">
                             {(uf.file.size / 1024 / 1024).toFixed(2)} MB
                           </p>
                         </div>
                         <button
                           onClick={() => removeFile(uf.id)}
-                          className="p-1 hover:bg-slate-700 rounded transition-colors"
+                          className="p-1 hover:bg-stone-700 rounded transition-colors"
                         >
-                          <X className="w-4 h-4 text-slate-400 hover:text-red-400" />
+                          <X className="w-4 h-4 text-stone-400 hover:text-red-400" />
                         </button>
                       </div>
                     );
@@ -382,10 +382,10 @@ export default function NewSystemWizard() {
                   <Lightbulb className="w-5 h-5 text-primary-400 mt-0.5" />
                   <div>
                     <h3 className="font-medium text-primary-400">AI Analysis Complete</h3>
-                    <p className="text-sm text-slate-300 mt-1">
+                    <p className="text-sm text-stone-300 mt-1">
                       {aiRecommendation.reasoning}
                     </p>
-                    <p className="text-xs text-slate-400 mt-2">
+                    <p className="text-xs text-stone-400 mt-2">
                       Confidence: {(aiRecommendation.confidence * 100).toFixed(0)}%
                     </p>
                   </div>
@@ -394,7 +394,7 @@ export default function NewSystemWizard() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-stone-300 mb-2">
                 System Name *
                 {aiRecommendation && (
                   <span className="ml-2 text-xs text-primary-400">(AI suggested)</span>
@@ -405,12 +405,12 @@ export default function NewSystemWizard() {
                 value={systemData.name}
                 onChange={(e) => setSystemData((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g., Fleet Vehicle Alpha, Robot Arm Unit 7"
-                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 transition-colors"
+                className="w-full px-4 py-3 bg-stone-900 border border-stone-700 rounded-lg text-white placeholder-stone-500 focus:outline-none focus:border-primary-500 transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-3">
+              <label className="block text-sm font-medium text-stone-300 mb-3">
                 System Type *
                 {aiRecommendation && (
                   <span className="ml-2 text-xs text-primary-400">(AI suggested)</span>
@@ -425,24 +425,24 @@ export default function NewSystemWizard() {
                       'p-4 rounded-lg border-2 text-left transition-all',
                       systemData.system_type === type.id
                         ? 'border-primary-500 bg-primary-500/10'
-                        : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                        : 'border-stone-700 bg-stone-800/50 hover:border-stone-600'
                     )}
                   >
                     <type.icon
                       className={clsx(
                         'w-6 h-6 mb-2',
-                        systemData.system_type === type.id ? 'text-primary-400' : 'text-slate-400'
+                        systemData.system_type === type.id ? 'text-primary-400' : 'text-stone-400'
                       )}
                     />
                     <p className="font-medium text-white">{type.name}</p>
-                    <p className="text-xs text-slate-400 mt-1">{type.description}</p>
+                    <p className="text-xs text-stone-400 mt-1">{type.description}</p>
                   </button>
                 ))}
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-stone-300 mb-2">
                 Description
                 {aiRecommendation && (
                   <span className="ml-2 text-xs text-primary-400">(AI generated)</span>
@@ -453,13 +453,13 @@ export default function NewSystemWizard() {
                 onChange={(e) => setSystemData((prev) => ({ ...prev, description: e.target.value }))}
                 placeholder="Brief description of the system..."
                 rows={4}
-                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 transition-colors resize-none"
+                className="w-full px-4 py-3 bg-stone-900 border border-stone-700 rounded-lg text-white placeholder-stone-500 focus:outline-none focus:border-primary-500 transition-colors resize-none"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
+                <label className="block text-sm font-medium text-stone-300 mb-2">
                   Serial Number (Optional)
                 </label>
                 <input
@@ -467,11 +467,11 @@ export default function NewSystemWizard() {
                   value={systemData.serial_number}
                   onChange={(e) => setSystemData((prev) => ({ ...prev, serial_number: e.target.value }))}
                   placeholder="e.g., VH-2024-001"
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 transition-colors"
+                  className="w-full px-4 py-3 bg-stone-900 border border-stone-700 rounded-lg text-white placeholder-stone-500 focus:outline-none focus:border-primary-500 transition-colors"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
+                <label className="block text-sm font-medium text-stone-300 mb-2">
                   Model (Optional)
                 </label>
                 <input
@@ -479,7 +479,7 @@ export default function NewSystemWizard() {
                   value={systemData.model}
                   onChange={(e) => setSystemData((prev) => ({ ...prev, model: e.target.value }))}
                   placeholder="e.g., EV-X1"
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 transition-colors"
+                  className="w-full px-4 py-3 bg-stone-900 border border-stone-700 rounded-lg text-white placeholder-stone-500 focus:outline-none focus:border-primary-500 transition-colors"
                 />
               </div>
             </div>
@@ -494,7 +494,7 @@ export default function NewSystemWizard() {
                 <Sparkles className="w-5 h-5 text-green-400" />
                 <div>
                   <h3 className="font-medium text-green-400">Schema Discovery Complete</h3>
-                  <p className="text-sm text-slate-300">
+                  <p className="text-sm text-stone-300">
                     Analyzed {recordCount.toLocaleString()} records from {uploadedFiles.length} files
                     and discovered {discoveredFields.length} fields
                   </p>
@@ -508,16 +508,16 @@ export default function NewSystemWizard() {
                 {discoveredFields.map((field) => (
                   <div
                     key={field.name}
-                    className="bg-slate-900/50 rounded-lg p-4 border border-slate-700"
+                    className="bg-stone-900/50 rounded-lg p-4 border border-stone-700"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                        <Database className="w-5 h-5 text-slate-400" />
+                        <Database className="w-5 h-5 text-stone-400" />
                         <div>
                           <p className="font-medium text-white font-mono">{field.name}</p>
-                          <p className="text-sm text-slate-400">{field.inferred_meaning || 'Unknown'}</p>
+                          <p className="text-sm text-stone-400">{field.inferred_meaning || 'Unknown'}</p>
                           {field.source_file && (
-                            <p className="text-xs text-slate-500 mt-1">From: {field.source_file}</p>
+                            <p className="text-xs text-stone-500 mt-1">From: {field.source_file}</p>
                           )}
                         </div>
                       </div>
@@ -526,7 +526,7 @@ export default function NewSystemWizard() {
                           {(field.confidence * 100).toFixed(0)}% confident
                         </span>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-300">
+                          <span className="px-2 py-0.5 bg-stone-700 rounded text-xs text-stone-300">
                             {field.inferred_type}
                           </span>
                           {field.physical_unit && (
@@ -537,9 +537,9 @@ export default function NewSystemWizard() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-slate-700">
-                      <p className="text-xs text-slate-500 mb-1">Sample values:</p>
-                      <p className="text-sm text-slate-300 font-mono">
+                    <div className="mt-3 pt-3 border-t border-stone-700">
+                      <p className="text-xs text-stone-500 mb-1">Sample values:</p>
+                      <p className="text-sm text-stone-300 font-mono">
                         {(field.sample_values || []).slice(0, 3).join(', ')}
                       </p>
                     </div>
@@ -553,12 +553,12 @@ export default function NewSystemWizard() {
       case 4:
         return (
           <div className="space-y-6">
-            <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
+            <div className="bg-stone-900/50 rounded-lg p-4 border border-stone-700">
               <div className="flex items-start gap-3">
                 <HelpCircle className="w-5 h-5 text-primary-400 mt-0.5" />
                 <div>
                   <h3 className="font-medium text-white">Human-in-the-Loop Confirmation</h3>
-                  <p className="text-sm text-slate-400 mt-1">
+                  <p className="text-sm text-stone-400 mt-1">
                     Please verify our AI's understanding of your data. This ensures accuracy and builds
                     trust in the analysis.
                   </p>
@@ -578,27 +578,27 @@ export default function NewSystemWizard() {
                         ? 'border-green-500/50 bg-green-500/5'
                         : confirmations[fieldName]?.confirmed === false
                         ? 'border-orange-500/50 bg-orange-500/5'
-                        : 'border-slate-700 bg-slate-800/50'
+                        : 'border-stone-700 bg-stone-800/50'
                     )}
                   >
                     <p className="text-white mb-4">{req.question}</p>
 
-                    <div className="bg-slate-900 rounded-lg p-3 mb-4">
+                    <div className="bg-stone-900 rounded-lg p-3 mb-4">
                       <div className="flex items-center gap-4 text-sm">
                         <div>
-                          <span className="text-slate-500">Type: </span>
-                          <span className="text-slate-300">{req.inferred_type || 'unknown'}</span>
+                          <span className="text-stone-500">Type: </span>
+                          <span className="text-stone-300">{req.inferred_type || 'unknown'}</span>
                         </div>
                         {req.inferred_unit && (
                           <div>
-                            <span className="text-slate-500">Unit: </span>
+                            <span className="text-stone-500">Unit: </span>
                             <span className="text-primary-300">{req.inferred_unit}</span>
                           </div>
                         )}
                       </div>
                       <div className="mt-2">
-                        <span className="text-slate-500 text-sm">Samples: </span>
-                        <span className="text-slate-300 font-mono text-sm">
+                        <span className="text-stone-500 text-sm">Samples: </span>
+                        <span className="text-stone-300 font-mono text-sm">
                           {(req.sample_values || []).slice(0, 3).join(', ')}
                         </span>
                       </div>
@@ -611,7 +611,7 @@ export default function NewSystemWizard() {
                           'flex-1 px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
                           confirmations[fieldName]?.confirmed === true
                             ? 'bg-green-500 text-white'
-                            : 'bg-slate-700 text-white hover:bg-slate-600'
+                            : 'bg-stone-700 text-white hover:bg-stone-600'
                         )}
                       >
                         <CheckCircle className="w-5 h-5" />
@@ -623,7 +623,7 @@ export default function NewSystemWizard() {
                           'flex-1 px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
                           confirmations[fieldName]?.confirmed === false
                             ? 'bg-orange-500 text-white'
-                            : 'bg-slate-700 text-white hover:bg-slate-600'
+                            : 'bg-stone-700 text-white hover:bg-stone-600'
                         )}
                       >
                         <XCircle className="w-5 h-5" />
@@ -636,7 +636,7 @@ export default function NewSystemWizard() {
             </div>
 
             {fieldConfirmations.length > 0 && (
-              <div className="text-center text-sm text-slate-400">
+              <div className="text-center text-sm text-stone-400">
                 {Object.keys(confirmations).length} of {fieldConfirmations.length} fields confirmed
               </div>
             )}
@@ -644,8 +644,8 @@ export default function NewSystemWizard() {
             {fieldConfirmations.length === 0 && (
               <div className="text-center py-8">
                 <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                <p className="text-slate-300 font-medium">No confirmations needed</p>
-                <p className="text-slate-500 text-sm">AI is confident about all discovered fields</p>
+                <p className="text-stone-300 font-medium">No confirmations needed</p>
+                <p className="text-stone-500 text-sm">AI is confident about all discovered fields</p>
               </div>
             )}
           </div>
@@ -658,26 +658,26 @@ export default function NewSystemWizard() {
               <CheckCircle className="w-10 h-10 text-green-500" />
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">System Ready!</h2>
-            <p className="text-slate-400 mb-8 max-w-md mx-auto">
+            <p className="text-stone-400 mb-8 max-w-md mx-auto">
               <span className="text-white font-medium">{systemData.name}</span> has been created and
               configured. The AI agents are now ready to analyze your data.
             </p>
 
             <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto mb-8">
-              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+              <div className="bg-stone-800 rounded-lg p-4 border border-stone-700">
                 <Database className="w-6 h-6 text-primary-400 mx-auto mb-2" />
                 <p className="text-2xl font-bold text-white">{recordCount.toLocaleString()}</p>
-                <p className="text-xs text-slate-400">Records</p>
+                <p className="text-xs text-stone-400">Records</p>
               </div>
-              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+              <div className="bg-stone-800 rounded-lg p-4 border border-stone-700">
                 <FileText className="w-6 h-6 text-primary-400 mx-auto mb-2" />
                 <p className="text-2xl font-bold text-white">{discoveredFields.length}</p>
-                <p className="text-xs text-slate-400">Fields</p>
+                <p className="text-xs text-stone-400">Fields</p>
               </div>
-              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+              <div className="bg-stone-800 rounded-lg p-4 border border-stone-700">
                 <Check className="w-6 h-6 text-green-400 mx-auto mb-2" />
                 <p className="text-2xl font-bold text-white">{uploadedFiles.length}</p>
-                <p className="text-xs text-slate-400">Files</p>
+                <p className="text-xs text-stone-400">Files</p>
               </div>
             </div>
 
@@ -691,7 +691,7 @@ export default function NewSystemWizard() {
               </button>
               <button
                 onClick={() => navigate('/systems')}
-                className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+                className="px-6 py-3 bg-stone-700 hover:bg-stone-600 text-white rounded-lg font-medium transition-colors"
               >
                 Go to Systems List
               </button>
@@ -707,13 +707,13 @@ export default function NewSystemWizard() {
       <div className="max-w-4xl mx-auto mb-8">
         <button
           onClick={() => navigate('/systems')}
-          className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 transition-colors"
+          className="flex items-center gap-2 text-stone-400 hover:text-white mb-4 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Systems
         </button>
         <h1 className="text-3xl font-bold text-white">Add New System</h1>
-        <p className="text-slate-400 mt-1">Upload your data and let AI configure your system</p>
+        <p className="text-stone-400 mt-1">Upload your data and let AI configure your system</p>
       </div>
 
       {/* Progress Steps */}
@@ -729,7 +729,7 @@ export default function NewSystemWizard() {
                       ? 'bg-green-500 text-white'
                       : currentStep === step.id
                       ? 'bg-primary-500 text-white'
-                      : 'bg-slate-700 text-slate-400'
+                      : 'bg-stone-700 text-stone-400'
                   )}
                 >
                   {currentStep > step.id ? <Check className="w-5 h-5" /> : step.id}
@@ -738,7 +738,7 @@ export default function NewSystemWizard() {
                   <p
                     className={clsx(
                       'text-sm font-medium',
-                      currentStep >= step.id ? 'text-white' : 'text-slate-500'
+                      currentStep >= step.id ? 'text-white' : 'text-stone-500'
                     )}
                   >
                     {step.name}
@@ -749,7 +749,7 @@ export default function NewSystemWizard() {
                 <div
                   className={clsx(
                     'w-full h-0.5 mx-4',
-                    currentStep > step.id ? 'bg-green-500' : 'bg-slate-700'
+                    currentStep > step.id ? 'bg-green-500' : 'bg-stone-700'
                   )}
                   style={{ width: '80px' }}
                 />
@@ -761,7 +761,7 @@ export default function NewSystemWizard() {
 
       {/* Content */}
       <div className="max-w-4xl mx-auto">
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-8">
+        <div className="bg-stone-800 rounded-xl border border-stone-700 p-8">
           {renderStepContent()}
         </div>
 
@@ -772,7 +772,7 @@ export default function NewSystemWizard() {
               <AlertCircle className="w-5 h-5 text-red-400" />
               <div>
                 <h3 className="font-medium text-red-400">Error</h3>
-                <p className="text-sm text-slate-300">{error}</p>
+                <p className="text-sm text-stone-300">{error}</p>
               </div>
               <button
                 onClick={() => setError(null)}
@@ -793,8 +793,8 @@ export default function NewSystemWizard() {
               className={clsx(
                 'px-6 py-3 rounded-lg font-medium transition-colors flex items-center gap-2',
                 currentStep === 1
-                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                  : 'bg-slate-700 text-white hover:bg-slate-600'
+                  ? 'bg-stone-800 text-stone-500 cursor-not-allowed'
+                  : 'bg-stone-700 text-white hover:bg-stone-600'
               )}
             >
               <ArrowLeft className="w-5 h-5" />
@@ -807,7 +807,7 @@ export default function NewSystemWizard() {
                 'px-6 py-3 rounded-lg font-medium transition-colors flex items-center gap-2',
                 canProceed() && !isProcessing
                   ? 'bg-primary-500 hover:bg-primary-600 text-white'
-                  : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                  : 'bg-stone-700 text-stone-500 cursor-not-allowed'
               )}
             >
               {isProcessing ? (
