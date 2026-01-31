@@ -294,6 +294,22 @@ async def analyze_system_stream(system_id: str):
             if result.health_score:
                 data_store.update_system(system_id, {"health_score": result.health_score})
 
+            # Persist analysis result so the PDF report endpoint can find it
+            try:
+                from pathlib import Path
+                import os
+                data_dir = os.environ.get("DATA_DIR", "/app/data")
+                if not os.path.exists("/app") and os.path.exists(os.path.dirname(__file__)):
+                    data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+                analyses_dir = Path(data_dir) / "analyses"
+                analyses_dir.mkdir(parents=True, exist_ok=True)
+                analysis_path = analyses_dir / f"{system_id}.json"
+                analysis_path.write_text(json.dumps(
+                    _sanitize_for_json(analysis_result), indent=2, default=str
+                ))
+            except Exception:
+                pass
+
             elapsed = round(time.time() - t0, 2)
 
             yield _sse_event("stage", {
