@@ -293,7 +293,7 @@ async def analyze_system_stream(system_id: str):
 
             # Update system with analysis results
             updates: Dict[str, Any] = {}
-            if result.health_score:
+            if result.health_score is not None:
                 updates["health_score"] = result.health_score
             if anomalies:
                 updates["status"] = "anomaly_detected"

@@ -14,15 +14,17 @@ from typing import Any, Dict, List, Optional
 from fpdf import FPDF
 
 
-def _safe(val: Any) -> str:
-    """Convert value to a safe string for PDF rendering."""
+def _safe(val: Any, max_len: int = 12) -> str:
+    """Convert value to a safe string for PDF rendering, truncated to max_len."""
     if val is None:
         return "N/A"
     if isinstance(val, float):
         if math.isnan(val) or math.isinf(val):
             return "N/A"
-        return f"{val:.4g}"
-    return str(val)
+        s = f"{val:.4g}"
+    else:
+        s = str(val)
+    return s[:max_len] if len(s) > max_len else s
 
 
 class UAIEReport(FPDF):
@@ -66,10 +68,15 @@ class UAIEReport(FPDF):
         self.cell(0, 8, title, new_x="LMARGIN", new_y="NEXT")
         self.ln(1)
 
+    def _safe_multi_cell(self, w, h, text):
+        """multi_cell with x reset to left margin to prevent overflow errors."""
+        self.set_x(self.l_margin)
+        self.multi_cell(w, h, text)
+
     def body_text(self, text: str):
         self.set_font("Helvetica", "", 10)
         self.set_text_color(50, 50, 50)
-        self.multi_cell(0, 5.5, text)
+        self._safe_multi_cell(0, 5.5, text)
         self.ln(2)
 
     def key_value(self, key: str, value: str):
@@ -78,7 +85,7 @@ class UAIEReport(FPDF):
         self.cell(50, 6, f"{key}:", align="L")
         self.set_font("Helvetica", "", 10)
         self.set_text_color(50, 50, 50)
-        self.cell(0, 6, value, new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 6, str(value)[:120], new_x="LMARGIN", new_y="NEXT")
 
     def severity_badge(self, severity: str) -> str:
         return severity.upper()
@@ -170,6 +177,7 @@ def generate_report(
         pdf.set_font("Helvetica", "B", 14)
         pdf.set_text_color(*color)
         pdf.cell(30, 10, f"{health:.0f}%")
+        pdf.set_x(pdf.l_margin)
         pdf.ln(14)
 
     # ── Data Statistics ───────────────────────────────────────────
@@ -197,6 +205,7 @@ def generate_report(
             # Table rows
             pdf.set_font("Helvetica", "", 7)
             for f in fields[:20]:
+                pdf.set_x(pdf.l_margin)
                 pdf.set_text_color(50, 50, 50)
                 pdf.cell(col_widths[0], 6, str(f.get("name", ""))[:20], border=1)
                 pdf.cell(col_widths[1], 6, str(f.get("type", ""))[:10], border=1, align="C")
@@ -281,14 +290,14 @@ def generate_report(
             if desc:
                 pdf.set_font("Helvetica", "", 9)
                 pdf.set_text_color(50, 50, 50)
-                pdf.multi_cell(0, 5, desc[:500])
+                pdf._safe_multi_cell(0, 5, desc[:500])
 
             # AI Explanation
             explanation = anom.get("natural_language_explanation", "")
             if explanation and explanation != desc:
                 pdf.set_font("Helvetica", "I", 9)
                 pdf.set_text_color(80, 80, 120)
-                pdf.multi_cell(0, 5, f"AI Analysis: {explanation[:400]}")
+                pdf._safe_multi_cell(0, 5, f"AI Analysis: {explanation[:400]}")
 
             # Possible Causes
             causes = anom.get("possible_causes", [])
@@ -337,6 +346,7 @@ def generate_report(
 
         pdf.set_font("Helvetica", "", 7)
         for m in margins[:20]:
+            pdf.set_x(pdf.l_margin)
             margin_pct = m.get("margin_percentage", 0)
             if margin_pct < 15:
                 pdf.set_text_color(220, 38, 38)
@@ -372,7 +382,7 @@ def generate_report(
                 pdf.set_font("Helvetica", "", 8.5)
                 pdf.set_text_color(70, 70, 130)
                 rec_text = f"Recommended: {sensor.get('type', '')} -- {sensor.get('specification', '')} (est. ${sensor.get('estimated_cost', 'N/A')})"
-                pdf.multi_cell(0, 5, rec_text[:200])
+                pdf._safe_multi_cell(0, 5, rec_text[:200])
 
             improvement = spot.get("diagnostic_coverage_improvement", 0)
             if improvement:
