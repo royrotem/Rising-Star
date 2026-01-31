@@ -55,3 +55,22 @@ class AnalysisRequest(BaseModel):
 class ConversationQuery(BaseModel):
     query: str
     context: Optional[Dict[str, Any]] = {}
+
+
+# ─── Schedule Schemas ───────────────────────────────────────────────
+
+class ScheduleRequest(BaseModel):
+    enabled: bool = True
+    interval: str = Field(default="24h", description="One of: 1h, 6h, 12h, 24h, 7d")
+
+
+class ScheduleResponse(BaseModel):
+    system_id: str
+    enabled: bool
+    interval: str = "24h"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    last_run_at: Optional[str] = None
+    last_run_status: Optional[str] = None
+    last_error: Optional[str] = None
+    run_count: int = 0

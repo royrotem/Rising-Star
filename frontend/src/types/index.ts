@@ -203,6 +203,19 @@ export interface AnomalyFeedback {
   created_at: string;
 }
 
+// Schedule / Watchdog Types
+export interface Schedule {
+  system_id: string;
+  enabled: boolean;
+  interval: '1h' | '6h' | '12h' | '24h' | '7d';
+  created_at?: string;
+  updated_at?: string;
+  last_run_at?: string;
+  last_run_status?: 'success' | 'error' | 'skipped';
+  last_error?: string;
+  run_count: number;
+}
+
 export interface FeedbackSummary {
   system_id: string;
   total_feedback: number;

@@ -12,10 +12,11 @@ import {
   ArrowRight,
   Sparkles,
   Shield,
+  Timer,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { systemsApi } from '../services/api';
-import type { System } from '../types';
+import { systemsApi, schedulesApi } from '../services/api';
+import type { System, Schedule } from '../types';
 import OnboardingGuide from '../components/OnboardingGuide';
 import { getSeverityBadgeColor, getStatusColor, getHealthColor } from '../utils/colors';
 
@@ -49,6 +50,7 @@ const mockImpactRadar = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const [systems, setSystems] = useState<System[]>([]);
+  const [schedules, setSchedules] = useState<Record<string, Schedule>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -59,6 +61,15 @@ export default function Dashboard() {
     try {
       const data = await systemsApi.list();
       setSystems(data);
+      // Load active schedules
+      try {
+        const scheds = await schedulesApi.list();
+        const map: Record<string, Schedule> = {};
+        for (const s of scheds) {
+          if (s.enabled) map[s.system_id] = s;
+        }
+        setSchedules(map);
+      } catch { /* schedules not critical */ }
     } catch (error) {
       console.error('Failed to load systems:', error);
       setSystems([
@@ -280,6 +291,11 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
+                      {schedules[system.id] && (
+                        <span title="Watchdog active">
+                          <Timer className="w-3.5 h-3.5 text-primary-400" />
+                        </span>
+                      )}
                       <span className={clsx(
                         'text-sm font-semibold tabular-nums',
                         getHealthColor(system.health_score)

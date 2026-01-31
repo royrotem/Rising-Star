@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type {
   System,
+  Schedule,
   AnalysisResult,
   ImpactRadarData,
   QueryResponse,
@@ -127,6 +128,28 @@ export const systemsApi = {
   }> => {
     const { data } = await api.get(`/systems/${systemId}/next-gen-specs`);
     return data;
+  },
+};
+
+// Schedules API (Watchdog Mode)
+export const schedulesApi = {
+  get: async (systemId: string): Promise<Schedule> => {
+    const { data } = await api.get(`/schedules/${systemId}`);
+    return data;
+  },
+
+  list: async (): Promise<Schedule[]> => {
+    const { data } = await api.get('/schedules/');
+    return data;
+  },
+
+  set: async (systemId: string, config: { enabled: boolean; interval: string }): Promise<Schedule> => {
+    const { data } = await api.put(`/schedules/${systemId}`, config);
+    return data;
+  },
+
+  delete: async (systemId: string): Promise<void> => {
+    await api.delete(`/schedules/${systemId}`);
   },
 };
 

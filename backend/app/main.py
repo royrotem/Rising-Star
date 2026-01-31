@@ -17,7 +17,9 @@ from .api.streaming import router as streaming_router
 from .api.chat import router as chat_router
 from .api.reports import router as reports_router
 from .api.baselines import router as baselines_router
+from .api.schedules import router as schedules_router
 from .agents.orchestrator import orchestrator
+from .services.scheduler import scheduler
 
 
 @asynccontextmanager
@@ -26,9 +28,11 @@ async def lifespan(app: FastAPI):
     # Startup
     print(f"🚀 Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     # orchestrator.start() would be called here in production
+    await scheduler.start()
     yield
     # Shutdown
     print("👋 Shutting down...")
+    await scheduler.stop()
     await orchestrator.stop()
 
 
@@ -76,6 +80,7 @@ app.include_router(streaming_router, prefix=settings.API_PREFIX)
 app.include_router(chat_router, prefix=settings.API_PREFIX)
 app.include_router(reports_router, prefix=settings.API_PREFIX)
 app.include_router(baselines_router, prefix=settings.API_PREFIX)
+app.include_router(schedules_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")

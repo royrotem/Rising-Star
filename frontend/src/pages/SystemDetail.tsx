@@ -30,6 +30,7 @@ import { useAnalysisStream } from '../hooks/useAnalysisStream';
 import { AnalysisStreamPanel } from '../components/AnalysisStreamPanel';
 import { reportApi } from '../services/reportApi';
 import BaselinePanel from '../components/BaselinePanel';
+import WatchdogPanel from '../components/WatchdogPanel';
 import { getSeverityCardColor } from '../utils/colors';
 
 interface DataStatistics {
@@ -471,6 +472,9 @@ export default function SystemDetail() {
           )}
         </div>
       )}
+
+      {/* Watchdog (Scheduled Auto-Analysis) */}
+      {systemId && <WatchdogPanel systemId={systemId} />}
 
       {/* Baseline & Historical */}
       {systemId && <BaselinePanel systemId={systemId} />}
