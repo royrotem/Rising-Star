@@ -112,6 +112,10 @@ export const systemsApi = {
     return data;
   },
 
+  delete: async (systemId: string): Promise<void> => {
+    await api.delete(`/systems/${systemId}`);
+  },
+
   getNextGenSpecs: async (systemId: string): Promise<{
     recommended_improvements: {
       new_sensors: Array<{

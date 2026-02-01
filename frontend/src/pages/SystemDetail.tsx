@@ -4,23 +4,13 @@ import {
   ArrowLeft,
   Upload,
   MessageSquare,
-  Activity,
-  AlertTriangle,
   TrendingDown,
-  Lightbulb,
   ChevronRight,
   RefreshCw,
   Loader2,
-  CheckCircle,
-  Database,
-  FileText,
   AlertCircle,
-  Globe,
-  Users,
-  Brain,
-  Cpu,
-  Eye,
   Download,
+  Activity,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -113,9 +103,9 @@ interface AnalysisData {
 }
 
 function getTrendIcon(trend: string) {
-  if (trend === 'degrading') return <TrendingDown className="w-4 h-4 text-red-500" />;
-  if (trend === 'improving') return <TrendingDown className="w-4 h-4 text-green-500 rotate-180" />;
-  return <Activity className="w-4 h-4 text-stone-500" />;
+  if (trend === 'degrading') return <TrendingDown className="w-3.5 h-3.5 text-red-400" />;
+  if (trend === 'improving') return <TrendingDown className="w-3.5 h-3.5 text-emerald-400 rotate-180" />;
+  return <Activity className="w-3.5 h-3.5 text-stone-600" />;
 }
 
 export default function SystemDetail() {
@@ -131,7 +121,6 @@ export default function SystemDetail() {
   const [downloading, setDownloading] = useState(false);
   const { stream, startStream } = useAnalysisStream();
 
-  // When the stream delivers a final result, apply it
   useEffect(() => {
     if (stream.result && !stream.active) {
       const r = stream.result as AnalysisResult & Record<string, unknown>;
@@ -152,7 +141,6 @@ export default function SystemDetail() {
     }
   }, [stream.result, stream.active]);
 
-  // If stream errors, stop the spinner
   useEffect(() => {
     if (stream.error && !stream.active) {
       setError(stream.error);
@@ -172,7 +160,6 @@ export default function SystemDetail() {
       const data = await systemsApi.get(systemId);
       setSystem(data as System);
 
-      // Load statistics
       try {
         const statsResponse = await fetch(`/api/v1/systems/${systemId}/statistics`);
         if (statsResponse.ok) {
@@ -183,7 +170,6 @@ export default function SystemDetail() {
         // Statistics not available yet
       }
 
-      // Load saved analysis (if any)
       const saved = await systemsApi.getAnalysis(systemId);
       if (saved) {
         setAnalysis({
@@ -216,7 +202,6 @@ export default function SystemDetail() {
     if (!systemId) return;
     setAnalyzing(true);
     setError(null);
-    // Use SSE streaming — progress is handled by the stream effects above
     startStream(systemId);
   };
 
@@ -240,7 +225,7 @@ export default function SystemDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-6 h-6 text-stone-600 animate-spin" />
       </div>
     );
   }
@@ -248,9 +233,8 @@ export default function SystemDetail() {
   if (error && !system) {
     return (
       <div className="p-8 text-center">
-        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
         <p className="text-stone-400 mb-4">{error}</p>
-        <Link to="/systems" className="text-primary-400 hover:text-primary-300">
+        <Link to="/systems" className="text-primary-400 hover:text-primary-300 text-sm">
           Back to Systems
         </Link>
       </div>
@@ -260,8 +244,8 @@ export default function SystemDetail() {
   if (!system) {
     return (
       <div className="p-8 text-center">
-        <p className="text-stone-400">System not found</p>
-        <Link to="/systems" className="text-primary-400 hover:text-primary-300">
+        <p className="text-stone-500">System not found</p>
+        <Link to="/systems" className="text-primary-400 hover:text-primary-300 text-sm">
           Back to Systems
         </Link>
       </div>
@@ -271,20 +255,20 @@ export default function SystemDetail() {
   const hasData = statistics && statistics.total_records > 0;
 
   return (
-    <div className="p-8">
+    <div className="p-8 page-enter">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-4 mb-8">
         <Link to="/systems" className="p-2 hover:bg-stone-800 rounded-lg transition-colors">
-          <ArrowLeft className="w-5 h-5 text-stone-400" />
+          <ArrowLeft className="w-4 h-4 text-stone-500" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-white">{system.name}</h1>
-          <p className="text-stone-400 capitalize">{system.system_type.replace('_', ' ')} | ID: {systemId}</p>
+          <h1 className="text-xl font-semibold text-white">{system.name}</h1>
+          <p className="text-stone-500 text-sm capitalize">{system.system_type.replace('_', ' ')}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <Link
             to={`/systems/${systemId}/chat`}
-            className="flex items-center gap-2 px-4 py-2 bg-stone-700 hover:bg-stone-600 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-3.5 py-2 text-stone-400 hover:text-white hover:bg-stone-800 rounded-lg text-sm transition-colors"
           >
             <MessageSquare className="w-4 h-4" />
             Ask AI
@@ -292,188 +276,165 @@ export default function SystemDetail() {
           <button
             onClick={handleDownloadReport}
             disabled={downloading}
-            className="flex items-center gap-2 px-4 py-2 bg-stone-700 hover:bg-stone-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-3.5 py-2 text-stone-400 hover:text-white hover:bg-stone-800 disabled:opacity-50 rounded-lg text-sm transition-colors"
           >
             <Download className={clsx("w-4 h-4", downloading && "animate-bounce")} />
-            {downloading ? 'Generating...' : 'PDF Report'}
+            PDF
           </button>
           <button
             onClick={() => navigate('/systems/new')}
-            className="flex items-center gap-2 px-4 py-2 bg-stone-700 hover:bg-stone-600 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-3.5 py-2 text-stone-400 hover:text-white hover:bg-stone-800 rounded-lg text-sm transition-colors"
           >
             <Upload className="w-4 h-4" />
-            Upload Data
+            Upload
           </button>
           <button
             onClick={handleAnalyze}
             disabled={analyzing}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
           >
-            <RefreshCw className={clsx("w-4 h-4", analyzing && "animate-spin")} />
-            {analyzing ? 'Analyzing...' : (analysis && analysis.anomalies.length > 0 ? 'Re-Analyze' : 'Run Analysis')}
+            <RefreshCw className={clsx("w-3.5 h-3.5", analyzing && "animate-spin")} />
+            {analyzing ? 'Analyzing...' : 'Run Analysis'}
           </button>
         </div>
       </div>
 
       {/* Error Display */}
       {error && (
-        <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-          <div className="flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-400" />
-            <p className="text-sm text-stone-300">{error}</p>
-          </div>
+        <div className="mb-6 bg-red-500/8 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <p className="text-sm text-stone-300">{error}</p>
         </div>
       )}
 
       {/* No Data Banner */}
       {!hasData && (
-        <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6">
-          <div className="flex items-start gap-4">
-            <Database className="w-8 h-8 text-yellow-400 flex-shrink-0" />
-            <div>
-              <h3 className="font-semibold text-yellow-400 mb-1">No Data Ingested</h3>
-              <p className="text-sm text-stone-300 mb-4">
-                Upload telemetry data to enable analysis, anomaly detection, and insights.
-                The AI will automatically discover your data schema and learn your system's patterns.
-              </p>
-              <button
-                onClick={() => navigate('/systems/new')}
-                className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black rounded-lg font-medium transition-colors"
-              >
-                Upload Data Now
-              </button>
-            </div>
-          </div>
+        <div className="mb-8 glass-card p-6">
+          <h3 className="text-sm font-medium text-white mb-1">No Data Ingested</h3>
+          <p className="text-xs text-stone-500 mb-4">
+            Upload telemetry data to enable analysis and anomaly detection.
+          </p>
+          <button
+            onClick={() => navigate('/systems/new')}
+            className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg font-medium transition-colors"
+          >
+            Upload Data
+          </button>
         </div>
       )}
 
       {/* Data Statistics */}
       {hasData && statistics && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
-            <Database className="w-6 h-6 text-primary-400 mb-2" />
-            <p className="text-2xl font-bold text-white">{statistics.total_records.toLocaleString()}</p>
-            <p className="text-sm text-stone-400">Total Records</p>
+        <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="stat-card">
+            <p className="section-header mb-2">Records</p>
+            <p className="text-xl font-semibold text-white tabular-nums">{statistics.total_records.toLocaleString()}</p>
           </div>
-          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
-            <FileText className="w-6 h-6 text-primary-400 mb-2" />
-            <p className="text-2xl font-bold text-white">{statistics.total_sources}</p>
-            <p className="text-sm text-stone-400">Data Sources</p>
+          <div className="stat-card">
+            <p className="section-header mb-2">Sources</p>
+            <p className="text-xl font-semibold text-white tabular-nums">{statistics.total_sources}</p>
           </div>
-          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
-            <Activity className="w-6 h-6 text-primary-400 mb-2" />
-            <p className="text-2xl font-bold text-white">{statistics.field_count}</p>
-            <p className="text-sm text-stone-400">Fields</p>
+          <div className="stat-card">
+            <p className="section-header mb-2">Fields</p>
+            <p className="text-xl font-semibold text-white tabular-nums">{statistics.field_count}</p>
           </div>
-          <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
-            <CheckCircle className="w-6 h-6 text-green-400 mb-2" />
-            <p className="text-2xl font-bold text-white">{system.status || 'Active'}</p>
-            <p className="text-sm text-stone-400">Status</p>
+          <div className="stat-card">
+            <p className="section-header mb-2">Status</p>
+            <p className="text-xl font-semibold text-white capitalize">{system.status?.replace('_', ' ') || 'Active'}</p>
           </div>
         </div>
       )}
 
       {/* Health Score */}
       {analysis && (
-        <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-white mb-1">System Health</h2>
-              <p className="text-stone-400 text-sm whitespace-pre-line">
+        <div className="glass-card p-6 mb-6">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 mr-8">
+              <p className="section-header mb-2">System Health</p>
+              <p className="text-sm text-stone-400 leading-relaxed whitespace-pre-line">
                 {analysis.insights_summary || 'Run analysis to get detailed health insights'}
               </p>
             </div>
-            <div className="text-right">
+            <div className="flex-shrink-0">
               {analysis.health_score !== null ? (
                 <div className={clsx(
-                  'text-5xl font-bold',
-                  analysis.health_score >= 90 ? 'text-green-500' :
-                  analysis.health_score >= 70 ? 'text-yellow-500' : 'text-red-500'
+                  'text-4xl font-semibold tabular-nums',
+                  analysis.health_score >= 90 ? 'text-emerald-400' :
+                  analysis.health_score >= 70 ? 'text-yellow-400' : 'text-red-400'
                 )}>
                   {analysis.health_score.toFixed(0)}%
                 </div>
               ) : (
-                <div className="text-3xl text-stone-500">--</div>
+                <div className="text-3xl text-stone-700">--</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* AI Chat CTA */}
+      {/* AI Chat link */}
       <Link
         to={`/systems/${systemId}/chat`}
-        className="block mb-6 bg-gradient-to-r from-primary-500/10 to-accent-500/10 border border-primary-500/20 rounded-xl p-5 hover:border-primary-500/40 transition-all group"
+        className="block mb-6 glass-card p-4 hover:border-stone-700 transition-all group"
       >
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-primary-500/10 rounded-xl group-hover:bg-primary-500/20 transition-colors">
-            <MessageSquare className="w-6 h-6 text-primary-400" />
-          </div>
+        <div className="flex items-center gap-3">
+          <MessageSquare className="w-4 h-4 text-stone-600 group-hover:text-primary-400 transition-colors" />
           <div className="flex-1">
-            <h3 className="text-white font-semibold flex items-center gap-2">
-              Ask AI About This System
-              <span className="px-2 py-0.5 bg-primary-500/20 text-primary-400 text-xs rounded-full font-medium">AI Chat</span>
-            </h3>
-            <p className="text-sm text-stone-400 mt-0.5">
-              Ask questions in natural language — get insights about anomalies, data patterns, and recommendations
+            <p className="text-sm text-stone-300 group-hover:text-white transition-colors">
+              Ask AI about this system
+            </p>
+            <p className="text-xs text-stone-600 mt-0.5">
+              Natural language queries about anomalies, patterns, and recommendations
             </p>
           </div>
-          <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-primary-400 transition-colors" />
+          <ChevronRight className="w-4 h-4 text-stone-700 group-hover:text-stone-500 transition-colors" />
         </div>
       </Link>
 
-      {/* Live Analysis Progress (SSE Streaming) */}
+      {/* Live Analysis Progress */}
       {analyzing && <AnalysisStreamPanel stream={stream} />}
 
       {/* AI Agents Status */}
       {analysis?.ai_analysis && (
-        <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6">
+        <div className="glass-card p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Brain className="w-5 h-5 text-purple-400" />
-              AI Multi-Agent Analysis
-            </h2>
+            <p className="section-header">AI Multi-Agent Analysis</p>
             <span className={clsx(
-              'px-3 py-1 rounded-full text-xs font-medium',
+              'px-2 py-0.5 rounded text-[10px] font-medium',
               analysis.ai_analysis.ai_powered
-                ? 'bg-purple-500/20 text-purple-400'
-                : 'bg-stone-600/50 text-stone-400'
+                ? 'bg-primary-500/10 text-primary-400'
+                : 'bg-stone-800 text-stone-500'
             )}>
-              {analysis.ai_analysis.ai_powered ? 'LLM Powered' : 'Rule-Based Fallback'}
+              {analysis.ai_analysis.ai_powered ? 'LLM Powered' : 'Rule-Based'}
             </span>
           </div>
-          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-3">
+          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-2">
             {analysis.ai_analysis.agent_statuses.map((agent, idx) => (
               <div
                 key={idx}
                 className={clsx(
-                  'p-3 rounded-lg border text-center',
+                  'p-2.5 rounded-lg text-center',
                   agent.status === 'success'
-                    ? 'border-green-500/30 bg-green-500/5'
-                    : 'border-red-500/30 bg-red-500/5'
+                    ? 'bg-emerald-500/5 border border-emerald-500/15'
+                    : 'bg-red-500/5 border border-red-500/15'
                 )}
               >
-                <Cpu className={clsx(
-                  'w-5 h-5 mx-auto mb-2',
-                  agent.status === 'success' ? 'text-green-400' : 'text-red-400'
-                )} />
-                <p className="text-xs font-medium text-white truncate">{agent.agent}</p>
-                <p className="text-xs text-stone-500 mt-1">
+                <p className="text-[11px] font-medium text-stone-300 truncate">{agent.agent}</p>
+                <p className="text-[10px] text-stone-600 mt-0.5">
                   {agent.status === 'success' ? `${agent.findings} findings` : 'Error'}
                 </p>
               </div>
             ))}
           </div>
           {analysis.ai_analysis.total_findings_raw > 0 && (
-            <p className="text-xs text-stone-500 mt-3 text-center">
-              {analysis.ai_analysis.total_findings_raw} raw findings merged into{' '}
-              {analysis.ai_analysis.total_anomalies_unified} unified anomalies
+            <p className="text-[11px] text-stone-600 mt-3">
+              {analysis.ai_analysis.total_findings_raw} raw findings → {analysis.ai_analysis.total_anomalies_unified} unified anomalies
             </p>
           )}
         </div>
       )}
 
-      {/* Watchdog (Scheduled Auto-Analysis) */}
+      {/* Watchdog */}
       {systemId && <WatchdogPanel systemId={systemId} />}
 
       {/* Baseline & Historical */}
@@ -481,30 +442,19 @@ export default function SystemDetail() {
 
       {/* Key Insights */}
       {analysis && analysis.insights && analysis.insights.length > 0 && (
-        <div className="bg-stone-800 rounded-xl border border-stone-700 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Lightbulb className="w-5 h-5 text-yellow-500" />
-            Key Insights
-          </h2>
+        <div className="glass-card p-6 mb-6">
+          <p className="section-header mb-4">Key Insights</p>
           <div className="space-y-2">
             {analysis.insights.map((insight, idx) => (
               <div key={idx} className={clsx(
-                'p-3 rounded-lg flex items-start gap-3',
+                'p-3 rounded-lg text-sm text-stone-300',
                 insight.toLowerCase().includes('urgent') || insight.toLowerCase().includes('critical')
-                  ? 'bg-red-500/10 border border-red-500/30'
+                  ? 'bg-red-500/8 border border-red-500/15'
                   : insight.toLowerCase().includes('warning') || insight.toLowerCase().includes('high')
-                  ? 'bg-orange-500/10 border border-orange-500/30'
-                  : 'bg-stone-700/50'
+                  ? 'bg-orange-500/8 border border-orange-500/15'
+                  : 'bg-stone-800/50'
               )}>
-                <AlertCircle className={clsx(
-                  'w-5 h-5 mt-0.5',
-                  insight.toLowerCase().includes('urgent') || insight.toLowerCase().includes('critical')
-                    ? 'text-red-400'
-                    : insight.toLowerCase().includes('warning') || insight.toLowerCase().includes('high')
-                    ? 'text-orange-400'
-                    : 'text-stone-400'
-                )} />
-                <p className="text-sm text-stone-300">{insight}</p>
+                {insight}
               </div>
             ))}
           </div>
@@ -518,32 +468,28 @@ export default function SystemDetail() {
 
       <div className="grid grid-cols-2 gap-6">
         {/* Anomalies */}
-        <div className="bg-stone-800 rounded-xl border border-stone-700">
-          <div className="px-6 py-4 border-b border-stone-700 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-orange-500" />
-              <h2 className="text-lg font-semibold text-white">Detected Anomalies</h2>
-            </div>
+        <div className="glass-card">
+          <div className="px-6 py-4 border-b border-stone-800 flex items-center justify-between">
+            <p className="text-sm font-medium text-white">Detected Anomalies</p>
             {analysis && analysis.anomalies.length > 0 && systemId && (
               <Link
                 to={`/systems/${systemId}/anomalies`}
-                className="text-xs text-primary-400 hover:text-primary-300 font-medium transition-colors"
+                className="text-xs text-stone-500 hover:text-stone-300 transition-colors"
               >
                 Explore All
               </Link>
             )}
           </div>
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-3">
             {!analysis || analysis.anomalies.length === 0 ? (
-              <div className="text-center py-8">
-                <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                <p className="text-stone-300 font-medium">
-                  {hasData ? 'No Anomalies Detected' : 'No Data to Analyze'}
+              <div className="text-center py-10">
+                <p className="text-stone-400 text-sm">
+                  {hasData ? 'No anomalies detected' : 'No data to analyze'}
                 </p>
-                <p className="text-stone-500 text-sm">
+                <p className="text-stone-600 text-xs mt-1">
                   {hasData
-                    ? 'System is operating within normal parameters'
-                    : 'Upload data and run analysis to detect anomalies'}
+                    ? 'System operating within normal parameters'
+                    : 'Upload data and run analysis'}
                 </p>
               </div>
             ) : (
@@ -551,79 +497,65 @@ export default function SystemDetail() {
                 <div
                   key={anomaly.id}
                   className={clsx(
-                    'p-4 rounded-lg border-l-4 cursor-pointer transition-colors',
+                    'p-4 rounded-lg border-l-[3px] cursor-pointer transition-colors',
                     getSeverityCardColor(anomaly.severity),
-                    selectedAnomaly === anomaly.id ? 'ring-2 ring-primary-500' : ''
+                    selectedAnomaly === anomaly.id ? 'ring-1 ring-primary-500/30' : ''
                   )}
                   onClick={() => setSelectedAnomaly(
                     selectedAnomaly === anomaly.id ? null : anomaly.id
                   )}
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="font-medium text-white">{anomaly.title}</h3>
-                    <span className="text-sm font-medium text-stone-400">
-                      Impact: {anomaly.impact_score.toFixed(1)}
+                  <div className="flex items-start justify-between mb-1.5">
+                    <h3 className="text-sm font-medium text-white">{anomaly.title}</h3>
+                    <span className="text-xs text-stone-500 tabular-nums ml-3 flex-shrink-0">
+                      {anomaly.impact_score.toFixed(1)}
                     </span>
                   </div>
-                  <p className="text-sm text-stone-300 mb-3">{anomaly.description}</p>
+                  <p className="text-xs text-stone-400 leading-relaxed">{anomaly.description}</p>
 
                   {selectedAnomaly === anomaly.id && (
-                    <div className="mt-4 pt-4 border-t border-stone-600 space-y-4">
-                      {/* Confidence indicator */}
+                    <div className="mt-4 pt-3 border-t border-stone-700/50 space-y-3">
                       {anomaly.confidence && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-stone-500">Confidence:</span>
-                          <div className="flex-1 bg-stone-700 rounded-full h-2 max-w-[100px]">
+                          <span className="text-[11px] text-stone-600">Confidence</span>
+                          <div className="flex-1 bg-stone-700/50 rounded-full h-1.5 max-w-[80px]">
                             <div
-                              className="bg-primary-500 h-2 rounded-full"
+                              className="bg-primary-500 h-1.5 rounded-full"
                               style={{ width: `${anomaly.confidence * 100}%` }}
                             />
                           </div>
-                          <span className="text-xs text-stone-400">{(anomaly.confidence * 100).toFixed(0)}%</span>
+                          <span className="text-[11px] text-stone-500 tabular-nums">{(anomaly.confidence * 100).toFixed(0)}%</span>
                         </div>
                       )}
 
-                      {/* AI Explanation */}
                       <div>
-                        <h4 className="text-sm font-medium text-primary-400 mb-2 flex items-center gap-2">
-                          <Lightbulb className="w-4 h-4" />
-                          AI Analysis
-                        </h4>
-                        <p className="text-sm text-stone-300 leading-relaxed">{anomaly.natural_language_explanation}</p>
+                        <p className="text-[11px] text-stone-500 mb-1">Analysis</p>
+                        <p className="text-xs text-stone-300 leading-relaxed">{anomaly.natural_language_explanation}</p>
                       </div>
 
-                      {/* Possible Causes */}
                       {anomaly.possible_causes && anomaly.possible_causes.length > 0 && (
                         <div>
-                          <h4 className="text-sm font-medium text-orange-400 mb-2 flex items-center gap-2">
-                            <AlertTriangle className="w-4 h-4" />
-                            Possible Causes
-                          </h4>
+                          <p className="text-[11px] text-stone-500 mb-1">Possible Causes</p>
                           <ul className="space-y-1">
                             {anomaly.possible_causes.map((cause, idx) => (
-                              <li key={idx} className="flex items-start gap-2 text-sm">
-                                <span className="text-orange-400 mt-1">•</span>
-                                <span className="text-stone-300">{cause}</span>
+                              <li key={idx} className="text-xs text-stone-300 pl-3 relative before:content-[''] before:absolute before:left-0 before:top-[7px] before:w-1 before:h-1 before:bg-stone-600 before:rounded-full">
+                                {cause}
                               </li>
                             ))}
                           </ul>
                         </div>
                       )}
 
-                      {/* Recommendations */}
                       {anomaly.recommendations && anomaly.recommendations.length > 0 && (
                         <div>
-                          <h4 className="text-sm font-medium text-green-400 mb-2 flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4" />
-                            Recommended Actions
-                          </h4>
+                          <p className="text-[11px] text-stone-500 mb-1">Recommendations</p>
                           {anomaly.recommendations.map((rec, idx) => (
-                            <div key={idx} className="flex items-start gap-2 text-sm mb-2">
+                            <div key={idx} className="flex items-start gap-2 text-xs mb-1.5">
                               <span className={clsx(
-                                'px-1.5 py-0.5 rounded text-xs font-medium',
-                                rec.priority === 'immediate' || rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
-                                rec.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                                'bg-stone-500/20 text-stone-400'
+                                'px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0',
+                                rec.priority === 'immediate' || rec.priority === 'high' ? 'bg-red-500/10 text-red-400' :
+                                rec.priority === 'medium' ? 'bg-yellow-500/10 text-yellow-400' :
+                                'bg-stone-800 text-stone-500'
                               )}>
                                 {rec.priority}
                               </span>
@@ -633,59 +565,44 @@ export default function SystemDetail() {
                         </div>
                       )}
 
-                      {/* Contributing Agents */}
                       {anomaly.contributing_agents && anomaly.contributing_agents.length > 0 && (
-                        <div>
-                          <h4 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
-                            <Users className="w-4 h-4" />
-                            Contributing AI Agents
-                          </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {anomaly.contributing_agents.map((agent, idx) => (
-                              <span
-                                key={idx}
-                                className="px-2 py-1 bg-purple-500/10 border border-purple-500/30 rounded-full text-xs text-purple-300"
-                              >
-                                {agent}
-                              </span>
-                            ))}
-                          </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {anomaly.contributing_agents.map((agent, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 bg-stone-800 rounded text-[10px] text-stone-400"
+                            >
+                              {agent}
+                            </span>
+                          ))}
                         </div>
                       )}
 
-                      {/* Agent Perspectives */}
                       {anomaly.agent_perspectives && anomaly.agent_perspectives.length > 1 && (
                         <div>
-                          <h4 className="text-sm font-medium text-blue-400 mb-2 flex items-center gap-2">
-                            <Eye className="w-4 h-4" />
-                            Agent Perspectives
-                          </h4>
-                          <div className="space-y-2">
+                          <p className="text-[11px] text-stone-500 mb-1">Perspectives</p>
+                          <div className="space-y-1.5">
                             {anomaly.agent_perspectives.map((p, idx) => (
-                              <div key={idx} className="p-2 bg-stone-700/50 rounded-lg">
-                                <span className="text-xs font-medium text-blue-300">{p.agent}:</span>
-                                <p className="text-xs text-stone-400 mt-1">{p.perspective}</p>
+                              <div key={idx} className="p-2 bg-stone-800/50 rounded-lg">
+                                <span className="text-[10px] font-medium text-stone-400">{p.agent}</span>
+                                <p className="text-[10px] text-stone-500 mt-0.5">{p.perspective}</p>
                               </div>
                             ))}
                           </div>
                         </div>
                       )}
 
-                      {/* Web References */}
                       {anomaly.web_references && anomaly.web_references.length > 0 && (
                         <div>
-                          <h4 className="text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
-                            <Globe className="w-4 h-4" />
-                            Web References
-                          </h4>
-                          <ul className="space-y-1">
+                          <p className="text-[11px] text-stone-500 mb-1">References</p>
+                          <ul className="space-y-0.5">
                             {anomaly.web_references.map((ref, idx) => (
-                              <li key={idx} className="text-xs">
+                              <li key={idx}>
                                 <a
                                   href={ref}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-cyan-400 hover:text-cyan-300 underline truncate block"
+                                  className="text-[10px] text-primary-400 hover:text-primary-300 underline truncate block"
                                 >
                                   {ref}
                                 </a>
@@ -697,7 +614,6 @@ export default function SystemDetail() {
                     </div>
                   )}
 
-                  {/* Anomaly Feedback */}
                   {systemId && (
                     <FeedbackButtons
                       systemId={systemId}
@@ -714,58 +630,56 @@ export default function SystemDetail() {
         </div>
 
         {/* Engineering Margins */}
-        <div className="bg-stone-800 rounded-xl border border-stone-700">
-          <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-primary-500" />
-            <h2 className="text-lg font-semibold text-white">Engineering Margins</h2>
+        <div className="glass-card">
+          <div className="px-6 py-4 border-b border-stone-800">
+            <p className="text-sm font-medium text-white">Engineering Margins</p>
           </div>
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-3">
             {!analysis || analysis.engineering_margins.length === 0 ? (
-              <div className="text-center py-8">
-                <Activity className="w-12 h-12 text-stone-500 mx-auto mb-3" />
-                <p className="text-stone-300 font-medium">
-                  {hasData ? 'No Margins Calculated' : 'No Data Available'}
+              <div className="text-center py-10">
+                <p className="text-stone-400 text-sm">
+                  {hasData ? 'No margins calculated' : 'No data available'}
                 </p>
-                <p className="text-stone-500 text-sm">
+                <p className="text-stone-600 text-xs mt-1">
                   {hasData
-                    ? 'Run analysis to calculate engineering margins'
-                    : 'Upload numeric data to see engineering margins'}
+                    ? 'Run analysis to calculate margins'
+                    : 'Upload numeric data first'}
                 </p>
               </div>
             ) : (
               analysis.engineering_margins.map((margin, idx) => (
-                <div key={idx} className="p-4 bg-stone-900/50 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
+                <div key={idx} className="p-3.5 bg-stone-800/40 rounded-lg">
+                  <div className="flex items-center justify-between mb-1">
                     <div>
-                      <h3 className="font-medium text-white">{margin.component}</h3>
-                      <p className="text-sm text-stone-400">{margin.parameter}</p>
+                      <h3 className="text-sm text-white">{margin.component}</h3>
+                      <p className="text-xs text-stone-500">{margin.parameter}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {getTrendIcon(margin.trend)}
                       {margin.safety_critical && (
-                        <span className="px-2 py-0.5 text-xs bg-red-500/20 text-red-400 rounded">
-                          Safety Critical
+                        <span className="px-1.5 py-0.5 text-[10px] bg-red-500/10 text-red-400 rounded">
+                          Safety
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="mt-3">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-stone-400">Current: {margin.current_value.toFixed(2)}</span>
-                      <span className="text-stone-400">Limit: {margin.design_limit.toFixed(2)}</span>
+                  <div className="mt-2.5">
+                    <div className="flex justify-between text-[11px] mb-1.5">
+                      <span className="text-stone-500 tabular-nums">{margin.current_value.toFixed(2)}</span>
+                      <span className="text-stone-600 tabular-nums">Limit: {margin.design_limit.toFixed(2)}</span>
                     </div>
-                    <div className="h-2 bg-stone-700 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-stone-700/50 rounded-full overflow-hidden">
                       <div
                         className={clsx(
                           'h-full rounded-full',
-                          margin.margin_percentage < 15 ? 'bg-red-500' :
-                          margin.margin_percentage < 30 ? 'bg-yellow-500' : 'bg-green-500'
+                          margin.margin_percentage < 15 ? 'bg-red-400' :
+                          margin.margin_percentage < 30 ? 'bg-yellow-400' : 'bg-emerald-400'
                         )}
                         style={{ width: getProgressWidth(margin.margin_percentage) }}
                       />
                     </div>
-                    <p className="text-sm text-stone-400 mt-1">
-                      {margin.margin_percentage.toFixed(1)}% margin remaining
+                    <p className="text-[11px] text-stone-500 mt-1 tabular-nums">
+                      {margin.margin_percentage.toFixed(1)}% remaining
                     </p>
                   </div>
                 </div>
@@ -775,43 +689,40 @@ export default function SystemDetail() {
         </div>
 
         {/* Blind Spots */}
-        <div className="col-span-2 bg-stone-800 rounded-xl border border-stone-700">
-          <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
-            <Lightbulb className="w-5 h-5 text-yellow-500" />
-            <h2 className="text-lg font-semibold text-white">Blind Spots & Recommendations</h2>
+        <div className="col-span-2 glass-card">
+          <div className="px-6 py-4 border-b border-stone-800">
+            <p className="text-sm font-medium text-white">Blind Spots & Recommendations</p>
           </div>
           <div className="p-4">
             {!analysis || analysis.blind_spots.length === 0 ? (
-              <div className="text-center py-8">
-                <Lightbulb className="w-12 h-12 text-stone-500 mx-auto mb-3" />
-                <p className="text-stone-300 font-medium">No Blind Spots Identified</p>
-                <p className="text-stone-500 text-sm">
-                  Run analysis with uploaded data to identify data gaps and improvement opportunities
+              <div className="text-center py-10">
+                <p className="text-stone-400 text-sm">No blind spots identified</p>
+                <p className="text-stone-600 text-xs mt-1">
+                  Run analysis with data to identify gaps
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 {analysis.blind_spots.map((spot, idx) => (
-                  <div key={idx} className="p-4 bg-stone-900/50 rounded-lg border border-stone-700">
-                    <h3 className="font-medium text-white mb-2">{spot.title}</h3>
-                    <p className="text-sm text-stone-300 mb-4">{spot.description}</p>
+                  <div key={idx} className="p-4 bg-stone-800/40 rounded-lg">
+                    <h3 className="text-sm font-medium text-white mb-1.5">{spot.title}</h3>
+                    <p className="text-xs text-stone-400 leading-relaxed mb-3">{spot.description}</p>
                     {spot.recommended_sensor && (
-                      <div className="p-3 bg-stone-800 rounded-lg">
-                        <h4 className="text-sm font-medium text-primary-400 mb-2">Recommended Sensor</h4>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <span className="text-stone-400">Type:</span>
-                          <span className="text-white">{spot.recommended_sensor.type}</span>
-                          <span className="text-stone-400">Spec:</span>
-                          <span className="text-white">{spot.recommended_sensor.specification}</span>
-                          <span className="text-stone-400">Cost:</span>
-                          <span className="text-white">${spot.recommended_sensor.estimated_cost}</span>
+                      <div className="p-2.5 bg-stone-900/50 rounded-lg text-xs">
+                        <p className="text-stone-500 mb-1.5">Recommended Sensor</p>
+                        <div className="grid grid-cols-2 gap-1 text-[11px]">
+                          <span className="text-stone-600">Type:</span>
+                          <span className="text-stone-300">{spot.recommended_sensor.type}</span>
+                          <span className="text-stone-600">Spec:</span>
+                          <span className="text-stone-300">{spot.recommended_sensor.specification}</span>
+                          <span className="text-stone-600">Cost:</span>
+                          <span className="text-stone-300">${spot.recommended_sensor.estimated_cost}</span>
                         </div>
                       </div>
                     )}
-                    <div className="mt-3 text-sm">
-                      <span className="text-stone-400">Coverage Gain: </span>
-                      <span className="text-green-400">+{spot.diagnostic_coverage_improvement}%</span>
-                    </div>
+                    <p className="text-[11px] text-stone-500 mt-2">
+                      Coverage gain: <span className="text-emerald-400 tabular-nums">+{spot.diagnostic_coverage_improvement}%</span>
+                    </p>
                   </div>
                 ))}
               </div>
@@ -821,34 +732,33 @@ export default function SystemDetail() {
 
         {/* Field Statistics */}
         {hasData && statistics && statistics.fields.length > 0 && (
-          <div className="col-span-2 bg-stone-800 rounded-xl border border-stone-700">
-            <div className="px-6 py-4 border-b border-stone-700 flex items-center gap-2">
-              <Database className="w-5 h-5 text-primary-500" />
-              <h2 className="text-lg font-semibold text-white">Field Statistics</h2>
+          <div className="col-span-2 glass-card">
+            <div className="px-6 py-4 border-b border-stone-800">
+              <p className="text-sm font-medium text-white">Field Statistics</p>
             </div>
             <div className="p-4 overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-left text-stone-400 border-b border-stone-700">
-                    <th className="pb-3 pr-4">Field Name</th>
-                    <th className="pb-3 pr-4">Type</th>
-                    <th className="pb-3 pr-4">Unique Values</th>
-                    <th className="pb-3 pr-4">Min</th>
-                    <th className="pb-3 pr-4">Max</th>
-                    <th className="pb-3 pr-4">Mean</th>
-                    <th className="pb-3">Std Dev</th>
+                  <tr className="text-left text-stone-600 border-b border-stone-800">
+                    <th className="pb-2.5 pr-4 font-medium">Field</th>
+                    <th className="pb-2.5 pr-4 font-medium">Type</th>
+                    <th className="pb-2.5 pr-4 font-medium">Unique</th>
+                    <th className="pb-2.5 pr-4 font-medium">Min</th>
+                    <th className="pb-2.5 pr-4 font-medium">Max</th>
+                    <th className="pb-2.5 pr-4 font-medium">Mean</th>
+                    <th className="pb-2.5 font-medium">Std</th>
                   </tr>
                 </thead>
                 <tbody>
                   {statistics.fields.map((field, idx) => (
-                    <tr key={idx} className="border-b border-stone-700/50 text-stone-300">
-                      <td className="py-3 pr-4 font-mono text-white">{field.name}</td>
-                      <td className="py-3 pr-4">{field.type}</td>
-                      <td className="py-3 pr-4">{field.unique_count}</td>
-                      <td className="py-3 pr-4">{field.min !== undefined ? field.min.toFixed(2) : '-'}</td>
-                      <td className="py-3 pr-4">{field.max !== undefined ? field.max.toFixed(2) : '-'}</td>
-                      <td className="py-3 pr-4">{field.mean !== undefined ? field.mean.toFixed(2) : '-'}</td>
-                      <td className="py-3">{field.std !== undefined ? field.std.toFixed(2) : '-'}</td>
+                    <tr key={idx} className="border-b border-stone-800/50 text-stone-400">
+                      <td className="py-2.5 pr-4 font-mono text-stone-300">{field.name}</td>
+                      <td className="py-2.5 pr-4">{field.type}</td>
+                      <td className="py-2.5 pr-4 tabular-nums">{field.unique_count}</td>
+                      <td className="py-2.5 pr-4 tabular-nums">{field.min !== undefined ? field.min.toFixed(2) : '-'}</td>
+                      <td className="py-2.5 pr-4 tabular-nums">{field.max !== undefined ? field.max.toFixed(2) : '-'}</td>
+                      <td className="py-2.5 pr-4 tabular-nums">{field.mean !== undefined ? field.mean.toFixed(2) : '-'}</td>
+                      <td className="py-2.5 tabular-nums">{field.std !== undefined ? field.std.toFixed(2) : '-'}</td>
                     </tr>
                   ))}
                 </tbody>

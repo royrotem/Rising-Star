@@ -2,16 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
-  Activity,
-  AlertTriangle,
-  TrendingDown,
-  Server,
   ChevronRight,
-  Target,
   Loader2,
   ArrowRight,
-  Sparkles,
-  Shield,
   Timer,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -61,7 +54,6 @@ export default function Dashboard() {
     try {
       const data = await systemsApi.list();
       setSystems(data);
-      // Load active schedules
       try {
         const scheds = await schedulesApi.list();
         const map: Record<string, Schedule> = {};
@@ -113,16 +105,16 @@ export default function Dashboard() {
   return (
     <div className="p-8 page-enter">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-10">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-          <p className="text-stone-400 mt-1 text-sm">
-            Monitor your fleet and track critical issues
+          <h1 className="text-xl font-semibold text-white">Dashboard</h1>
+          <p className="text-stone-500 mt-1 text-sm">
+            Fleet overview and critical issues
           </p>
         </div>
         <button
           onClick={() => navigate('/systems/new')}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white rounded-xl font-medium transition-all duration-200 shadow-lg shadow-primary-500/20 hover:shadow-primary-500/30"
+          className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg font-medium transition-colors"
         >
           <Plus className="w-4 h-4" />
           Add System
@@ -133,106 +125,81 @@ export default function Dashboard() {
       {!loading && <OnboardingGuide systemCount={systems.length} />}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-4 gap-5 mb-8">
-        <div className="stat-card" style={{ '--stat-accent': '#da7756' } as React.CSSProperties}>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-primary-500/10 rounded-xl">
-              <Server className="w-5 h-5 text-primary-400" />
-            </div>
-            <div>
-              {loading ? (
-                <Loader2 className="w-5 h-5 text-primary-400 animate-spin" />
-              ) : (
-                <p className="text-2xl font-bold text-white">{systems.length}</p>
-              )}
-              <p className="text-xs text-stone-500 font-medium">Active Systems</p>
-            </div>
-          </div>
+      <div className="grid grid-cols-4 gap-4 mb-10">
+        <div className="stat-card">
+          <p className="section-header mb-3">Active Systems</p>
+          {loading ? (
+            <Loader2 className="w-5 h-5 text-stone-600 animate-spin" />
+          ) : (
+            <p className="text-2xl font-semibold text-white tabular-nums">{systems.length}</p>
+          )}
         </div>
 
-        <div className="stat-card" style={{ '--stat-accent': '#f97316' } as React.CSSProperties}>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-orange-500/10 rounded-xl">
-              <AlertTriangle className="w-5 h-5 text-orange-400" />
-            </div>
-            <div>
-              {loading ? (
-                <Loader2 className="w-5 h-5 text-orange-400 animate-spin" />
-              ) : (
-                <p className="text-2xl font-bold text-white">{anomalyCount}</p>
-              )}
-              <p className="text-xs text-stone-500 font-medium">Active Anomalies</p>
-            </div>
-          </div>
+        <div className="stat-card">
+          <p className="section-header mb-3">Active Anomalies</p>
+          {loading ? (
+            <Loader2 className="w-5 h-5 text-stone-600 animate-spin" />
+          ) : (
+            <p className={clsx(
+              'text-2xl font-semibold tabular-nums',
+              anomalyCount > 0 ? 'text-orange-400' : 'text-white'
+            )}>{anomalyCount}</p>
+          )}
         </div>
 
-        <div className="stat-card" style={{ '--stat-accent': '#10b981' } as React.CSSProperties}>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-emerald-500/10 rounded-xl">
-              <Activity className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div>
-              {loading ? (
-                <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
-              ) : (
-                <p className="text-2xl font-bold text-white">{avgHealthScore}%</p>
-              )}
-              <p className="text-xs text-stone-500 font-medium">Avg Health Score</p>
-            </div>
-          </div>
+        <div className="stat-card">
+          <p className="section-header mb-3">Avg Health</p>
+          {loading ? (
+            <Loader2 className="w-5 h-5 text-stone-600 animate-spin" />
+          ) : (
+            <p className="text-2xl font-semibold text-white tabular-nums">{avgHealthScore}%</p>
+          )}
         </div>
 
-        <div className="stat-card" style={{ '--stat-accent': '#ef4444' } as React.CSSProperties}>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-red-500/10 rounded-xl">
-              <TrendingDown className="w-5 h-5 text-red-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-white">2</p>
-              <p className="text-xs text-stone-500 font-medium">Margins Degrading</p>
-            </div>
-          </div>
+        <div className="stat-card">
+          <p className="section-header mb-3">Degrading Margins</p>
+          <p className={clsx(
+            'text-2xl font-semibold tabular-nums',
+            'text-red-400'
+          )}>2</p>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-6">
         {/* 80/20 Impact Radar */}
-        <div className="col-span-2 glass-card overflow-hidden">
-          <div className="px-6 py-4 border-b border-stone-700/50">
-            <div className="flex items-center gap-2">
-              <Target className="w-5 h-5 text-primary-400" />
-              <h2 className="text-base font-semibold text-white">80/20 Impact Radar</h2>
-            </div>
-            <p className="text-xs text-stone-500 mt-1">
-              Focus on the 20% of issues causing 80% of impact
+        <div className="col-span-2 glass-card">
+          <div className="px-6 py-4 border-b border-stone-800">
+            <h2 className="text-sm font-medium text-white">Impact Radar</h2>
+            <p className="text-xs text-stone-600 mt-0.5">
+              Top issues by impact score
             </p>
           </div>
-          <div className="p-5">
-            <div className="space-y-3">
+          <div className="p-4">
+            <div className="space-y-2">
               {mockImpactRadar.prioritized_issues.map((issue, idx) => (
                 <Link
                   key={issue.rank}
                   to={`/systems/1`}
-                  className="flex items-center gap-4 p-4 bg-stone-900/40 rounded-xl border border-stone-700/40 hover:border-primary-500/30 transition-all duration-200 group"
-                  style={{ animationDelay: `${idx * 100}ms` }}
+                  className="flex items-center gap-4 p-3.5 rounded-lg border border-transparent hover:border-stone-800 hover:bg-stone-800/40 transition-all duration-150 group"
+                  style={{ animationDelay: `${idx * 80}ms` }}
                 >
-                  <div className="flex items-center justify-center w-9 h-9 bg-stone-800 rounded-lg text-sm font-bold text-stone-400 group-hover:bg-primary-500/10 group-hover:text-primary-400 transition-all duration-200">
+                  <span className="text-xs font-mono text-stone-600 w-5 text-center">
                     {issue.rank}
-                  </div>
+                  </span>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-sm text-white group-hover:text-primary-300 transition-colors truncate">{issue.title}</h3>
-                    <p className="text-xs text-stone-500 mt-0.5">
-                      Affecting {issue.affected_percentage}% of fleet
+                    <h3 className="text-sm text-stone-200 group-hover:text-white transition-colors truncate">{issue.title}</h3>
+                    <p className="text-xs text-stone-600 mt-0.5">
+                      {issue.affected_percentage}% of fleet affected
                     </p>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <div className={clsx(
-                      'inline-flex px-2.5 py-1 rounded-lg text-xs font-medium',
+                    <span className={clsx(
+                      'inline-flex px-2 py-0.5 rounded text-xs font-medium',
                       getSeverityBadgeColor(issue.severity)
                     )}>
                       {issue.impact_score}
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-stone-600 group-hover:text-primary-400 transition-colors" />
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-stone-700 group-hover:text-stone-500 transition-colors" />
                   </div>
                 </Link>
               ))}
@@ -241,31 +208,28 @@ export default function Dashboard() {
         </div>
 
         {/* Systems List */}
-        <div className="glass-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-stone-700/50 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-white">Systems</h2>
+        <div className="glass-card">
+          <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+            <h2 className="text-sm font-medium text-white">Systems</h2>
             <Link
               to="/systems"
-              className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1 font-medium transition-colors"
+              className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1 transition-colors"
             >
               View all
-              <ArrowRight className="w-3.5 h-3.5" />
+              <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
-          <div className="p-3">
+          <div className="p-2">
             {loading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-5 h-5 text-primary-400 animate-spin" />
+                <Loader2 className="w-5 h-5 text-stone-600 animate-spin" />
               </div>
             ) : systems.length === 0 ? (
               <div className="text-center py-10">
-                <div className="p-3 bg-stone-800/50 rounded-xl inline-block mb-3">
-                  <Server className="w-7 h-7 text-stone-600" />
-                </div>
-                <p className="text-stone-400 text-sm font-medium">No systems yet</p>
+                <p className="text-stone-500 text-sm">No systems yet</p>
                 <Link
                   to="/systems/new"
-                  className="text-primary-400 text-xs hover:text-primary-300 mt-1 inline-block"
+                  className="text-primary-400 text-xs hover:text-primary-300 mt-1.5 inline-block"
                 >
                   Add your first system
                 </Link>
@@ -276,56 +240,38 @@ export default function Dashboard() {
                   <Link
                     key={system.id}
                     to={`/systems/${system.id}`}
-                    className="flex items-center justify-between p-3 rounded-lg hover:bg-stone-800/60 transition-all duration-200 group"
+                    className="flex items-center justify-between p-2.5 rounded-lg hover:bg-stone-800/50 transition-colors duration-150 group"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <div className={clsx(
-                        'w-2 h-2 rounded-full flex-shrink-0',
+                        'w-1.5 h-1.5 rounded-full flex-shrink-0',
                         getStatusColor(system.status)
                       )} />
                       <div className="min-w-0">
-                        <p className="font-medium text-sm text-white group-hover:text-primary-300 transition-colors truncate">
+                        <p className="text-sm text-stone-300 group-hover:text-white transition-colors truncate">
                           {system.name}
                         </p>
-                        <p className="text-xs text-stone-500 capitalize">{system.system_type.replace('_', ' ')}</p>
+                        <p className="text-[11px] text-stone-600 capitalize">{system.system_type.replace('_', ' ')}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {schedules[system.id] && (
                         <span title="Watchdog active">
-                          <Timer className="w-3.5 h-3.5 text-primary-400" />
+                          <Timer className="w-3 h-3 text-stone-500" />
                         </span>
                       )}
                       <span className={clsx(
-                        'text-sm font-semibold tabular-nums',
+                        'text-xs font-medium tabular-nums',
                         getHealthColor(system.health_score)
                       )}>
                         {system.health_score}%
                       </span>
-                      <ChevronRight className="w-3.5 h-3.5 text-stone-600 group-hover:text-stone-400" />
                     </div>
                   </Link>
                 ))}
               </div>
             )}
           </div>
-        </div>
-      </div>
-
-      {/* Quick Info Banner */}
-      <div className="mt-6 glass-card p-5 flex items-center gap-4">
-        <div className="p-2.5 bg-primary-500/10 rounded-xl flex-shrink-0">
-          <Sparkles className="w-5 h-5 text-primary-400" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-white">AI-Powered Analysis</h3>
-          <p className="text-xs text-stone-500 mt-0.5">
-            13 specialized agents analyze your data across statistical, domain, pattern, temporal, predictive, safety, compliance, and more
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Shield className="w-4 h-4 text-accent-400" />
-          <span className="text-xs text-accent-400 font-medium">Active</span>
         </div>
       </div>
     </div>
