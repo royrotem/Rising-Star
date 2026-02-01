@@ -138,7 +138,7 @@ export default function Systems() {
 
       {/* Search */}
       <div className="relative mb-6">
-        <Search className="absolute left-3 top-1/2 -transtone-y-1/2 w-5 h-5 text-stone-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
         <input
           type="text"
           placeholder="Search systems..."

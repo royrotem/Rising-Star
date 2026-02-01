@@ -250,7 +250,7 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setShowKey(!showKey)}
-                  className="absolute right-3 top-1/2 -transtone-y-1/2 text-stone-500 hover:text-stone-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300"
                 >
                   {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -279,7 +279,7 @@ export default function Settings() {
             >
               <div className={clsx(
                 'absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform',
-                aiSettings.enable_ai_agents ? 'transtone-x-6' : 'transtone-x-0.5'
+                aiSettings.enable_ai_agents ? 'translate-x-6' : 'translate-x-0.5'
               )} />
             </button>
           </div>
@@ -302,7 +302,7 @@ export default function Settings() {
             >
               <div className={clsx(
                 'absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform',
-                aiSettings.enable_web_grounding ? 'transtone-x-6' : 'transtone-x-0.5'
+                aiSettings.enable_web_grounding ? 'translate-x-6' : 'translate-x-0.5'
               )} />
             </button>
           </div>
@@ -408,7 +408,7 @@ export default function Settings() {
                         ) : (
                           <div className={clsx(
                             'absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform',
-                            enabled ? 'transtone-x-5' : 'transtone-x-0.5'
+                            enabled ? 'translate-x-5' : 'translate-x-0.5'
                           )} />
                         )}
                       </button>

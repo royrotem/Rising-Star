@@ -145,7 +145,7 @@ export default function WatchdogPanel({ systemId }: Props) {
         >
           <div className={clsx(
             'absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform',
-            localEnabled ? 'transtone-x-6' : 'transtone-x-0.5'
+            localEnabled ? 'translate-x-6' : 'translate-x-0.5'
           )} />
         </button>
       </div>
