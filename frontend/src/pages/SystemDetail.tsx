@@ -301,7 +301,7 @@ export default function SystemDetail() {
 
       {/* Error Display */}
       {error && (
-        <div className="mb-6 bg-red-500/8 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
+        <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
           <p className="text-sm text-stone-300">{error}</p>
         </div>
@@ -449,9 +449,9 @@ export default function SystemDetail() {
               <div key={idx} className={clsx(
                 'p-3 rounded-lg text-sm text-stone-300',
                 insight.toLowerCase().includes('urgent') || insight.toLowerCase().includes('critical')
-                  ? 'bg-red-500/8 border border-red-500/15'
+                  ? 'bg-red-500/10 border border-red-500/15'
                   : insight.toLowerCase().includes('warning') || insight.toLowerCase().includes('high')
-                  ? 'bg-orange-500/8 border border-orange-500/15'
+                  ? 'bg-orange-500/10 border border-orange-500/15'
                   : 'bg-stone-800/50'
               )}>
                 {insight}

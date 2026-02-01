@@ -51,7 +51,8 @@ body {
 /* Card system */
 @layer components {
   .glass-card {
-    @apply bg-stone-900/80 border border-stone-800 rounded-xl;
+    @apply border border-stone-800 rounded-xl;
+    background-color: rgba(28, 25, 23, 0.8);
   }
 
   .glass-card-hover {
@@ -69,7 +70,8 @@ body {
 
   /* Stat card — minimal */
   .stat-card {
-    @apply relative bg-stone-900/80 rounded-xl p-5 border border-stone-800 transition-all duration-200;
+    @apply relative rounded-xl p-5 border border-stone-800 transition-all duration-200;
+    background-color: rgba(28, 25, 23, 0.8);
   }
 
   .stat-card:hover {
@@ -84,23 +86,33 @@ body {
 
 /* Severity colors */
 .severity-critical {
-  @apply text-red-400 bg-red-500/8 border-red-500/20;
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
 }
 
 .severity-high {
-  @apply text-orange-400 bg-orange-500/8 border-orange-500/20;
+  color: #fb923c;
+  background-color: rgba(249, 115, 22, 0.08);
+  border-color: rgba(249, 115, 22, 0.2);
 }
 
 .severity-medium {
-  @apply text-yellow-400 bg-yellow-500/8 border-yellow-500/20;
+  color: #facc15;
+  background-color: rgba(234, 179, 8, 0.08);
+  border-color: rgba(234, 179, 8, 0.2);
 }
 
 .severity-low {
-  @apply text-emerald-400 bg-emerald-500/8 border-emerald-500/20;
+  color: #34d399;
+  background-color: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.2);
 }
 
 .severity-info {
-  @apply text-blue-400 bg-blue-500/8 border-blue-500/20;
+  color: #60a5fa;
+  background-color: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 /* Smooth page entrance */
