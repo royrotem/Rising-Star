@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Download,
   Activity,
+  Settings2,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -121,6 +122,11 @@ export default function SystemDetail() {
   const [downloading, setDownloading] = useState(false);
   const { stream, startStream } = useAnalysisStream();
 
+  // Agent selection
+  const [showAgentConfig, setShowAgentConfig] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<Array<{ name: string; perspective: string }>>([]);
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     if (stream.result && !stream.active) {
       const r = stream.result as AnalysisResult & Record<string, unknown>;
@@ -150,6 +156,16 @@ export default function SystemDetail() {
 
   useEffect(() => {
     loadSystem();
+    // Load available agents
+    fetch('/api/v1/systems/available-agents')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.agents) {
+          setAvailableAgents(data.agents);
+          setSelectedAgents(new Set(data.agents.map((a: { name: string }) => a.name)));
+        }
+      })
+      .catch(() => { /* agents list not critical */ });
   }, [systemId]);
 
   const loadSystem = async () => {
@@ -202,7 +218,31 @@ export default function SystemDetail() {
     if (!systemId) return;
     setAnalyzing(true);
     setError(null);
-    startStream(systemId);
+    const agentList = selectedAgents.size < availableAgents.length
+      ? Array.from(selectedAgents)
+      : undefined;
+    startStream(systemId, agentList);
+  };
+
+  const toggleAgent = (agentName: string) => {
+    setSelectedAgents((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentName)) {
+        if (next.size > 1) next.delete(agentName); // keep at least 1
+      } else {
+        next.add(agentName);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllAgents = () => {
+    if (selectedAgents.size === availableAgents.length) {
+      // Deselect all except first (must keep at least 1)
+      setSelectedAgents(new Set([availableAgents[0]?.name].filter(Boolean)));
+    } else {
+      setSelectedAgents(new Set(availableAgents.map((a) => a.name)));
+    }
   };
 
   const handleDownloadReport = async () => {
@@ -289,6 +329,23 @@ export default function SystemDetail() {
             Upload
           </button>
           <button
+            onClick={() => setShowAgentConfig(!showAgentConfig)}
+            className={clsx(
+              "flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm transition-colors",
+              showAgentConfig
+                ? "text-primary-400 bg-primary-500/10"
+                : "text-stone-400 hover:text-white hover:bg-stone-700"
+            )}
+          >
+            <Settings2 className="w-4 h-4" />
+            Agents
+            {selectedAgents.size < availableAgents.length && (
+              <span className="px-1.5 py-0.5 bg-primary-500/20 text-primary-400 text-[10px] rounded-full tabular-nums">
+                {selectedAgents.size}/{availableAgents.length}
+              </span>
+            )}
+          </button>
+          <button
             onClick={handleAnalyze}
             disabled={analyzing}
             className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
@@ -298,6 +355,61 @@ export default function SystemDetail() {
           </button>
         </div>
       </div>
+
+      {/* Agent Selection Panel */}
+      {showAgentConfig && availableAgents.length > 0 && (
+        <div className="mb-6 glass-card p-4 page-enter">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Settings2 className="w-4 h-4 text-stone-400" />
+              <p className="text-sm font-medium text-white">AI Agent Configuration</p>
+            </div>
+            <button
+              onClick={toggleAllAgents}
+              className="text-xs text-stone-400 hover:text-white transition-colors"
+            >
+              {selectedAgents.size === availableAgents.length ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
+          <p className="text-xs text-stone-400 mb-3">
+            Choose which AI agents to include in the analysis. Each agent provides a unique analytical perspective.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {availableAgents.map((agent) => {
+              const isSelected = selectedAgents.has(agent.name);
+              return (
+                <button
+                  key={agent.name}
+                  onClick={() => toggleAgent(agent.name)}
+                  className={clsx(
+                    'p-2.5 rounded-lg text-left transition-all border',
+                    isSelected
+                      ? 'bg-primary-500/10 border-primary-500/30 hover:bg-primary-500/15'
+                      : 'bg-stone-700/30 border-stone-600/30 hover:bg-stone-700/50 opacity-50'
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={clsx(
+                      'w-3 h-3 rounded-sm border flex items-center justify-center flex-shrink-0',
+                      isSelected
+                        ? 'bg-primary-500 border-primary-500'
+                        : 'border-stone-500'
+                    )}>
+                      {isSelected && (
+                        <svg className="w-2 h-2 text-white" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </div>
+                    <p className="text-xs font-medium text-stone-200 truncate">{agent.name}</p>
+                  </div>
+                  <p className="text-[10px] text-stone-400 line-clamp-2 pl-5">{agent.perspective}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Error Display */}
       {error && (

@@ -10,14 +10,14 @@ import asyncio
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from ..services.data_store import data_store
 from ..services.analysis_engine import analysis_engine
-from ..services.ai_agents import orchestrator as ai_orchestrator
+from ..services.ai_agents import orchestrator as ai_orchestrator, ALL_AGENT_NAMES
 from ..services.recommendation import build_data_profile
 from ..utils import (
     sanitize_for_json,
@@ -37,9 +37,15 @@ def _sse_event(event: str, data: Any) -> str:
 
 
 @router.get("/{system_id}/analyze-stream")
-async def analyze_system_stream(system_id: str):
+async def analyze_system_stream(
+    system_id: str,
+    agents: Optional[str] = Query(None, description="Comma-separated list of agent names to run. If omitted, all agents run."),
+):
     """
     Stream analysis progress via Server-Sent Events.
+
+    Query params:
+      - agents: comma-separated agent names (e.g. "Statistical Analyst,Domain Expert")
 
     Events emitted:
       - stage: { stage, message, progress }  — progress updates
@@ -51,6 +57,11 @@ async def analyze_system_stream(system_id: str):
     system = data_store.get_system(system_id)
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
+
+    # Parse agent selection
+    selected_agents: Optional[List[str]] = None
+    if agents:
+        selected_agents = [a.strip() for a in agents.split(",") if a.strip()]
 
     async def event_stream():
         try:
@@ -132,9 +143,10 @@ async def analyze_system_stream(system_id: str):
             agent_statuses: List[Dict] = []
 
             if ai_cfg.get("enable_ai_agents", True):
+                agent_count = len(selected_agents) if selected_agents else 13
                 yield _sse_event("stage", {
                     "stage": "ai_agents",
-                    "message": "Launching AI agent swarm (13 specialized agents)...",
+                    "message": f"Launching AI agent swarm ({agent_count} specialized agents)...",
                     "progress": 55,
                 })
 
@@ -152,6 +164,7 @@ async def analyze_system_stream(system_id: str):
                         data_profile=data_profile,
                         metadata_context=metadata_context,
                         enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
+                        selected_agents=selected_agents,
                     )
 
                     # Emit per-agent statuses
@@ -266,3 +279,15 @@ async def analyze_system_stream(system_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/available-agents")
+async def list_available_agents():
+    """Return the list of available AI agents with their descriptions."""
+    agent_info = []
+    for agent in ai_orchestrator.agents:
+        agent_info.append({
+            "name": agent.name,
+            "perspective": agent.perspective,
+        })
+    return {"agents": agent_info}

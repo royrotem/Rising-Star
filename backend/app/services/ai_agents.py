@@ -45,9 +45,26 @@ except ImportError:
     HAS_HTTPX = False
 
 # Per-agent timeout in seconds — prevents any single agent from running forever
-AGENT_TIMEOUT = 60
+AGENT_TIMEOUT = 90
 # Global orchestrator timeout — total wall-clock limit for all agents combined
-ORCHESTRATOR_TIMEOUT = 180
+ORCHESTRATOR_TIMEOUT = 300
+
+# All available agent names (used for selection validation)
+ALL_AGENT_NAMES = [
+    "Statistical Analyst",
+    "Domain Expert",
+    "Pattern Detective",
+    "Root Cause Investigator",
+    "Safety Auditor",
+    "Temporal Analyst",
+    "Data Quality Inspector",
+    "Predictive Forecaster",
+    "Operational Profiler",
+    "Efficiency Analyst",
+    "Compliance Checker",
+    "Reliability Engineer",
+    "Environmental Correlator",
+]
 
 
 def _get_api_key() -> str:
@@ -483,8 +500,16 @@ class RootCauseInvestigator(BaseAgent):
 
         data_summary = self._build_data_summary(data_profile)
 
+        system_context = (
+            f"You are a root cause investigator — a veteran engineer who reasons about "
+            f"fundamental causes of anomalies in {system_type} systems. You focus on the "
+            f"chain of causation, not just symptoms. You think about what physical processes "
+            f"could produce the observed data.\n\n"
+        )
+
         prompt = (
-            f"You are investigating the root causes of anomalies in a {system_type} system "
+            f"{system_context}"
+            f"Investigate the root causes of anomalies in this {system_type} system "
             f"called '{system_name}'.\n\n"
             f"DATA PROFILE:\n{data_summary}\n\n"
             f"{('SYSTEM DESCRIPTION: ' + metadata_context) if metadata_context else ''}\n\n"
@@ -508,8 +533,17 @@ class RootCauseInvestigator(BaseAgent):
             "Output ONLY the JSON array."
         )
 
+        # Get extended thinking budget from settings
+        try:
+            from ..api.app_settings import get_ai_settings
+            ai_cfg = get_ai_settings()
+            budget = ai_cfg.get("extended_thinking_budget", 10000)
+        except Exception:
+            budget = 10000
+
         try:
             # Use extended thinking for deeper reasoning (with timeout)
+            # Note: extended thinking does not support the `system` parameter
             response = await asyncio.wait_for(
                 self.client.messages.create(
                     model=self.model,
@@ -517,7 +551,7 @@ class RootCauseInvestigator(BaseAgent):
                     temperature=1,  # Required for extended thinking
                     thinking={
                         "type": "enabled",
-                        "budget_tokens": 5000,
+                        "budget_tokens": budget,
                     },
                     messages=[{"role": "user", "content": prompt}],
                 ),
@@ -544,12 +578,13 @@ class RootCauseInvestigator(BaseAgent):
             return self._fallback_analyze(system_type, data_profile)
         except Exception as e:
             print(f"[{self.name}] Extended thinking call failed: {e}")
-            # Fallback to regular call
+            # Fallback to regular call without extended thinking
             try:
                 response = await asyncio.wait_for(
                     self.client.messages.create(
                         model=self.model,
                         max_tokens=4096,
+                        system=system_context,
                         messages=[{"role": "user", "content": prompt}],
                     ),
                     timeout=AGENT_TIMEOUT,
@@ -1215,17 +1250,36 @@ class AgentOrchestrator:
         data_profile: Dict,
         metadata_context: str = "",
         enable_web_grounding: bool = True,
+        selected_agents: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Run all agents in parallel and unify results.
+        """Run agents in parallel and unify results.
+
+        Args:
+            selected_agents: If provided, only run agents whose names are in this list.
+                             If None or empty, all agents are run.
 
         Has a global timeout of ORCHESTRATOR_TIMEOUT seconds.  Individual
         agents also have their own AGENT_TIMEOUT.
         """
 
-        # Run all agents truly in parallel (AsyncAnthropic enables this)
+        # Filter agents if selection provided
+        if selected_agents:
+            selected_set = set(selected_agents)
+            active_agents = [a for a in self.agents if a.name in selected_set]
+            if not active_agents:
+                active_agents = list(self.agents)  # fallback to all if none matched
+        else:
+            active_agents = list(self.agents)
+
+        print(f"[Orchestrator] Running {len(active_agents)} agents: {[a.name for a in active_agents]}")
+
+        # Create proper asyncio Tasks so we can cancel them on global timeout
         tasks = [
-            agent.analyze(system_type, system_name, data_profile, metadata_context)
-            for agent in self.agents
+            asyncio.create_task(
+                agent.analyze(system_type, system_name, data_profile, metadata_context),
+                name=agent.name,
+            )
+            for agent in active_agents
         ]
         try:
             results = await asyncio.wait_for(
@@ -1234,19 +1288,23 @@ class AgentOrchestrator:
             )
         except asyncio.TimeoutError:
             print(f"[Orchestrator] Global timeout ({ORCHESTRATOR_TIMEOUT}s) hit — collecting partial results")
-            # Cancel remaining tasks and use whatever we have
+            # Cancel remaining tasks and collect whatever finished
             results = []
             for task in tasks:
-                if hasattr(task, 'result') and not isinstance(task, Exception):
-                    results.append(task)
+                if task.done() and not task.cancelled():
+                    try:
+                        results.append(task.result())
+                    except Exception as exc:
+                        results.append(exc)
                 else:
+                    task.cancel()
                     results.append(TimeoutError("Orchestrator global timeout"))
 
         # Collect all findings
         all_findings: List[AgentFinding] = []
         agent_statuses = []
 
-        for agent, result in zip(self.agents, results):
+        for agent, result in zip(active_agents, results):
             if isinstance(result, Exception):
                 print(f"[Orchestrator] Agent {agent.name} failed: {result}")
                 agent_statuses.append({
@@ -1278,7 +1336,7 @@ class AgentOrchestrator:
             "agent_statuses": agent_statuses,
             "total_findings_raw": len(all_findings),
             "total_anomalies_unified": len(unified),
-            "agents_used": [a.name for a in self.agents],
+            "agents_used": [a.name for a in active_agents],
             "ai_powered": HAS_ANTHROPIC and bool(_get_api_key()),
         }
 

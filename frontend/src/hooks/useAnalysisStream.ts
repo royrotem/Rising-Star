@@ -62,7 +62,7 @@ export function useAnalysisStream() {
   const [state, setState] = useState<StreamState>(INITIAL_STATE);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const start = useCallback((systemId: string) => {
+  const start = useCallback((systemId: string, selectedAgents?: string[]) => {
     // Reset state
     setState({ ...INITIAL_STATE, active: true, message: 'Connecting...' });
 
@@ -71,7 +71,13 @@ export function useAnalysisStream() {
       eventSourceRef.current.close();
     }
 
-    const es = new EventSource(`/api/v1/systems/${systemId}/analyze-stream`);
+    let url = `/api/v1/systems/${systemId}/analyze-stream`;
+    if (selectedAgents && selectedAgents.length > 0) {
+      const agentsParam = encodeURIComponent(selectedAgents.join(','));
+      url += `?agents=${agentsParam}`;
+    }
+
+    const es = new EventSource(url);
     eventSourceRef.current = es;
 
     es.addEventListener('stage', (e: MessageEvent) => {
