@@ -22,6 +22,13 @@ from ..services.recommendation import (
     enrich_fields_with_context,
     generate_system_recommendation,
 )
+from ..services.statistical_profiler import build_field_profiles, build_dataset_summary
+from ..services.llm_discovery import (
+    discover_with_llm,
+    cross_validate,
+    fallback_rule_based,
+    SYSTEM_TYPES,
+)
 from ..utils import (
     sanitize_for_json,
     anomaly_to_dict,
@@ -30,7 +37,7 @@ from ..utils import (
     save_analysis,
     get_data_dir,
 )
-from .app_settings import get_ai_settings
+from .app_settings import get_ai_settings, get_anthropic_api_key
 from .schemas import (
     AnalysisRequest,
     ConversationQuery,
@@ -116,18 +123,23 @@ async def analyze_files(files: List[UploadFile] = File(...)):
     """
     Analyze uploaded files to discover schema and suggest system configuration.
 
-    Processes all uploaded files, classifies them as data vs description files,
-    uses description files to enrich field understanding, discovers relationships,
-    and provides smart recommendations for system name, type, and description.
-    Records are stored temporarily and can be associated with a system
-    using the returned ``analysis_id``.
+    NEW ARCHITECTURE (v2):
+      1. Parse all files (local)
+      2. Classify files as data vs description (local)
+      3. Extract context from description files (local)
+      4. Build rich statistical profiles for every field (local)
+      5. ONE LLM call to Claude for holistic interpretation (fields + system + relationships)
+      6. Cross-validate LLM output against statistical profiles (local)
+      7. Return enriched structured result
+
+    Falls back to rule-based discovery when no API key is configured.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
 
     analysis_id = str(uuid.uuid4())
 
-    # ── First pass: parse all files ──────────────────────────────────
+    # ── Pass 1: parse all files ──────────────────────────────────────
     parsed_files: List[Dict] = []
 
     for file in files:
@@ -153,8 +165,7 @@ async def analyze_files(files: List[UploadFile] = File(...)):
                 "error": str(e),
             })
 
-    # ── Second pass: classify files as data vs description ───────────
-    # Collect all field names from successfully parsed files
+    # ── Pass 2: classify files as data vs description ────────────────
     all_parsed_field_names: List[str] = []
     for pf in parsed_files:
         result = pf.get("result")
@@ -164,7 +175,6 @@ async def analyze_files(files: List[UploadFile] = File(...)):
                 if name not in ("line_number", "content"):
                     all_parsed_field_names.append(name)
 
-    # Classify each file
     from ..services.ingestion import DiscoveredField as _DF
     for pf in parsed_files:
         result = pf.get("result")
@@ -183,7 +193,6 @@ async def analyze_files(files: List[UploadFile] = File(...)):
             for f in fields_raw
         ]
 
-        # Other files' fields = all fields minus this file's fields
         this_file_fields = {f.get("name", "") for f in fields_raw}
         other_fields = [f for f in all_parsed_field_names if f not in this_file_fields]
 
@@ -191,7 +200,7 @@ async def analyze_files(files: List[UploadFile] = File(...)):
             pf["filename"], records, fields_as_df, other_fields,
         )
 
-    # ── Third pass: extract descriptions from description files ──────
+    # ── Pass 3: extract descriptions from description files ──────────
     description_field_map: Dict[str, str] = {}
     description_context_texts: List[str] = []
     data_field_names = []
@@ -206,24 +215,22 @@ async def analyze_files(files: List[UploadFile] = File(...)):
     for pf in parsed_files:
         if pf["role"] == "description" and pf.get("result"):
             records = pf["result"].get("sample_records", [])
-            # Extract field descriptions matching data file fields
             extracted = ingestion_service.extract_descriptions_from_file(
                 records, data_field_names,
             )
             description_field_map.update(extracted)
-            # Get full text as context
             ctx = ingestion_service.get_description_file_context(records)
             if ctx:
                 description_context_texts.append(ctx)
 
-    # ── Fourth pass: build output from data files only ───────────────
-    all_discovered_fields: List[Dict] = []
-    all_confirmation_requests: List[Dict] = []
-    all_metadata: List[Dict] = []
+    # ── Pass 4: build records + file summaries from data files ───────
     all_records: List[Dict] = []
     total_records = 0
     file_summaries: List[Dict] = []
     file_records_map: Dict[str, List[Dict]] = {}
+    all_metadata: List[Dict] = []
+    # Keep legacy discovered_fields for backward compatibility
+    all_discovered_fields_legacy: List[Dict] = []
 
     for pf in parsed_files:
         result = pf.get("result")
@@ -248,11 +255,9 @@ async def analyze_files(files: List[UploadFile] = File(...)):
 
             for field in result.get("discovered_fields", []):
                 field["source_file"] = pf["filename"]
-                # Add field category
                 field["field_category"] = ingestion_service.classify_field_relevance(field)
-                all_discovered_fields.append(field)
+                all_discovered_fields_legacy.append(field)
 
-            all_confirmation_requests.extend(result.get("confirmation_requests", []))
             total_records += result.get("record_count", 0)
 
             metadata_info = result.get("metadata_info", {})
@@ -276,59 +281,138 @@ async def analyze_files(files: List[UploadFile] = File(...)):
         analysis_id=analysis_id,
         records=all_records,
         file_summaries=file_summaries,
-        discovered_fields=all_discovered_fields,
+        discovered_fields=all_discovered_fields_legacy,
         file_records_map=file_records_map,
     )
 
-    # ── Enrichment: combine all metadata + description file context ──
-    combined_field_descriptions: Dict[str, str] = {}
-    combined_context_texts: List[str] = []
+    # ── Pass 5: statistical profiling ────────────────────────────────
+    field_profiles = build_field_profiles(all_records)
+    dataset_summary = build_dataset_summary(all_records, field_profiles)
 
-    # Add descriptions extracted from description files (highest priority)
-    combined_field_descriptions.update(description_field_map)
-    combined_context_texts.extend(description_context_texts)
-
-    # Add metadata extracted from within data files
+    # Combine description context
+    combined_context_texts: List[str] = list(description_context_texts)
     for meta in all_metadata:
-        if meta.get("field_descriptions"):
-            for k, v in meta["field_descriptions"].items():
-                if k not in combined_field_descriptions:
-                    combined_field_descriptions[k] = v
         if meta.get("context_texts"):
             combined_context_texts.extend(meta["context_texts"])
         elif meta.get("dataset_description"):
             combined_context_texts.append(meta["dataset_description"])
+    description_context = "\n\n".join(combined_context_texts)[:4000]
 
-    all_discovered_fields = enrich_fields_with_context(
-        all_discovered_fields,
-        combined_field_descriptions,
-        combined_context_texts,
-    )
+    file_classification = {
+        "data_files": [s["filename"] for s in file_summaries if s.get("role") == "data"],
+        "description_files": [s["filename"] for s in file_summaries if s.get("role") == "description"],
+        "error_files": [s["filename"] for s in file_summaries if s.get("role") == "error"],
+    }
 
-    recommendation = generate_system_recommendation(
-        file_summaries, all_discovered_fields, all_metadata,
+    # ── Pass 6: LLM-powered discovery (or fallback) ─────────────────
+    api_key = get_anthropic_api_key()
+    ai_cfg = get_ai_settings()
+    use_llm = bool(api_key) and ai_cfg.get("enable_ai_agents", True) and len(field_profiles) > 0
+
+    llm_result = None
+    if use_llm:
+        llm_result = await discover_with_llm(
+            field_profiles=field_profiles,
+            dataset_summary=dataset_summary,
+            description_context=description_context,
+            file_classification=file_classification,
+            api_key=api_key,
+        )
+
+    if llm_result:
+        # ── Pass 7: cross-validate ──────────────────────────────────
+        llm_result = cross_validate(llm_result, field_profiles)
+        ai_powered = True
+    else:
+        # Fallback to rule-based
+        llm_result = fallback_rule_based(field_profiles, dataset_summary)
+        ai_powered = False
+
+    # ── Build recommendation from LLM result ─────────────────────────
+    sys_id = llm_result.get("system_identification", {})
+    recommendation = {
+        "suggested_name": _suggest_name_from_files(file_summaries, sys_id.get("system_type", "generic_iot")),
+        "suggested_type": sys_id.get("system_type", "generic_iot"),
+        "suggested_description": sys_id.get("system_description", ""),
+        "confidence": sys_id.get("system_type_confidence", 0.5),
+        "system_subtype": sys_id.get("system_subtype"),
+        "domain": sys_id.get("domain"),
+        "detected_components": sys_id.get("detected_components", []),
+        "probable_use_case": sys_id.get("probable_use_case"),
+        "data_characteristics": sys_id.get("data_characteristics", {}),
+        "reasoning": f"{'AI-powered' if ai_powered else 'Rule-based'} analysis of {len(field_profiles)} fields across {len(file_classification['data_files'])} data file(s).",
+        "analysis_summary": {
+            "files_analyzed": len(file_summaries),
+            "total_records": total_records,
+            "unique_fields": len(field_profiles),
+            "ai_powered": ai_powered,
+        },
+    }
+
+    # ── Build discovered_fields from LLM output (enriched format) ────
+    discovered_fields_enriched = llm_result.get("fields", [])
+
+    # Merge source_file info from legacy fields
+    legacy_map = {}
+    for lf in all_discovered_fields_legacy:
+        legacy_map[lf.get("name", "")] = lf
+    for ef in discovered_fields_enriched:
+        lf = legacy_map.get(ef.get("name", ""))
+        if lf:
+            ef["source_file"] = lf.get("source_file")
+            # Preserve sample_values/statistics from parsing if LLM didn't provide
+            if not ef.get("sample_values") and lf.get("sample_values"):
+                ef["sample_values"] = lf["sample_values"]
+            if not ef.get("statistics") and lf.get("statistics"):
+                ef["statistics"] = lf["statistics"]
+
+    # Also store the LLM discovery result alongside the temp analysis
+    data_store.store_temp_analysis(
+        analysis_id=analysis_id,
+        records=all_records,
+        file_summaries=file_summaries,
+        discovered_fields=discovered_fields_enriched,
+        file_records_map=file_records_map,
     )
 
     file_errors = [s for s in file_summaries if s.get("status") == "error"]
-    description_files = [s["filename"] for s in file_summaries if s.get("role") == "description"]
 
     return {
         "status": "success",
         "analysis_id": analysis_id,
         "files_analyzed": len(files),
         "total_records": total_records,
-        "discovered_fields": all_discovered_fields,
-        "confirmation_requests": all_confirmation_requests,
+        "ai_powered": ai_powered,
+        # New enriched fields (LLM or fallback)
+        "discovered_fields": discovered_fields_enriched,
+        # System identification
         "recommendation": recommendation,
-        "context_extracted": len(combined_context_texts) > 0,
-        "fields_enriched": len(combined_field_descriptions),
-        "file_classification": {
-            "data_files": [s["filename"] for s in file_summaries if s.get("role") == "data"],
-            "description_files": description_files,
-            "error_files": [s["filename"] for s in file_summaries if s.get("role") == "error"],
-        },
+        # Relationships discovered by LLM
+        "field_relationships": llm_result.get("field_relationships", []),
+        # Blind spots
+        "blind_spots": llm_result.get("blind_spots", []),
+        # Smart confirmation requests (only truly uncertain fields)
+        "confirmation_requests": llm_result.get("recommended_confirmation_fields", []),
+        # File info
+        "file_classification": file_classification,
         "file_errors": file_errors,
+        # Context extraction stats
+        "context_extracted": len(combined_context_texts) > 0,
+        "fields_enriched": len(description_field_map) if not ai_powered else len(discovered_fields_enriched),
+        # Available system types (for frontend dropdown)
+        "available_system_types": SYSTEM_TYPES,
     }
+
+
+def _suggest_name_from_files(file_summaries: List[Dict], system_type: str) -> str:
+    """Generate a suggested system name from filenames or type."""
+    from ..services.llm_discovery import SYSTEM_TYPES
+    file_names = [s.get("filename", "") for s in file_summaries if s.get("role") != "error"]
+    for fn in file_names:
+        clean_name = fn.replace("_", " ").replace("-", " ").split(".")[0]
+        if len(clean_name) > 3:
+            return f"{clean_name.title()} System"
+    return SYSTEM_TYPES.get(system_type, "Data System")
 
 
 @router.post("/", response_model=SystemResponse)

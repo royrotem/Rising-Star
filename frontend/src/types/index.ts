@@ -152,13 +152,40 @@ export interface QueryResponse {
   summary?: Record<string, unknown>;
 }
 
-// Discovered Field Types
+// ─── Discovered Field Types (v2 — LLM-enriched) ─────────────────────
+
+export interface FieldConfidenceScores {
+  type: number;
+  unit: number;
+  meaning: number;
+  overall: number;
+}
+
+export interface EngineeringContext {
+  typical_range?: { min: number; max: number } | null;
+  operating_range_description?: string | null;
+  what_high_means?: string | null;
+  what_low_means?: string | null;
+  safety_critical?: boolean;
+  design_limit_hint?: { min: number; max: number } | null;
+}
+
 export interface DiscoveredField {
   name: string;
-  inferred_type: string;
+  display_name?: string;
+  description?: string;
+  type?: string;
   physical_unit?: string;
-  inferred_meaning?: string;
-  confidence: number;
+  physical_unit_full?: string;
+  category?: string;
+  component?: string | null;
+  engineering_context?: EngineeringContext;
+  value_interpretation?: {
+    assessment?: string;
+  };
+  confidence?: FieldConfidenceScores | number;
+  reasoning?: string;
+  source_file?: string;
   sample_values?: unknown[];
   statistics?: {
     min?: number;
@@ -167,25 +194,103 @@ export interface DiscoveredField {
     std?: number;
     null_percentage?: number;
   };
+  // Legacy compat
+  inferred_type?: string;
+  inferred_meaning?: string;
+  field_category?: string;
+}
+
+export interface DetectedComponent {
+  name: string;
+  role: string;
+  fields: string[];
+}
+
+export interface SystemIdentification {
+  system_type: string;
+  system_type_confidence: number;
+  system_subtype?: string | null;
+  system_description: string;
+  domain?: string;
+  detected_components?: DetectedComponent[];
+  probable_use_case?: string;
+  data_characteristics?: {
+    temporal_resolution?: string;
+    duration_estimate?: string;
+    completeness?: string;
+  };
 }
 
 export interface FieldRelationship {
-  field_a: string;
-  field_b: string;
-  relationship_type: string;
-  strength: number;
+  fields: string[];
+  relationship: string;
   description: string;
-  confidence: number;
+  expected_correlation?: string;
+  diagnostic_value?: string;
+  // Legacy compat
+  field_a?: string;
+  field_b?: string;
+  relationship_type?: string;
+  strength?: number;
+  confidence?: number;
 }
 
 export interface ConfirmationRequest {
-  type: 'field_confirmation' | 'relationship_confirmation';
+  field?: string;
   field_name?: string;
+  reason?: string;
   question: string;
+  // Legacy compat
+  type?: 'field_confirmation' | 'relationship_confirmation';
   inferred_unit?: string;
   inferred_type?: string;
   sample_values?: unknown[];
-  options: string[];
+  options?: string[];
+}
+
+export interface SystemRecommendation {
+  suggested_name: string;
+  suggested_type: string;
+  suggested_description: string;
+  confidence: number;
+  system_subtype?: string | null;
+  domain?: string | null;
+  detected_components?: DetectedComponent[];
+  probable_use_case?: string | null;
+  data_characteristics?: {
+    temporal_resolution?: string;
+    duration_estimate?: string;
+    completeness?: string;
+  };
+  reasoning?: string;
+  analysis_summary?: {
+    files_analyzed: number;
+    total_records: number;
+    unique_fields: number;
+    ai_powered?: boolean;
+  };
+}
+
+export interface AnalyzeFilesResponse {
+  status: string;
+  analysis_id: string;
+  files_analyzed: number;
+  total_records: number;
+  ai_powered: boolean;
+  discovered_fields: DiscoveredField[];
+  recommendation: SystemRecommendation;
+  field_relationships: FieldRelationship[];
+  blind_spots: string[];
+  confirmation_requests: ConfirmationRequest[];
+  file_classification: {
+    data_files: string[];
+    description_files: string[];
+    error_files: string[];
+  };
+  file_errors: unknown[];
+  context_extracted: boolean;
+  fields_enriched: number;
+  available_system_types: Record<string, string>;
 }
 
 // Anomaly Feedback Types

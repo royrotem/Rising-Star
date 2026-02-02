@@ -40,6 +40,57 @@ _SYSTEM_TYPE_KEYWORDS: Dict[str, List[str]] = {
         "predictive maintenance", "fault detection", "anomaly", "sensor",
         "vibration", "acoustic", "machine_id", "equipment", "health",
     ],
+    "energy": [
+        "generator", "transformer", "grid", "load", "frequency", "reactive",
+        "active_power", "power_factor", "busbar", "switchgear", "substation",
+    ],
+    "solar_energy": [
+        "pv", "solar", "irradiance", "ghi", "mppt", "inverter", "string",
+        "panel", "module", "voc", "isc", "vmp", "imp",
+    ],
+    "wind_energy": [
+        "turbine", "nacelle", "blade", "rotor", "wind_speed", "gearbox",
+        "yaw", "pitch_angle", "tip_speed",
+    ],
+    "battery_system": [
+        "soc", "soh", "cell", "bms", "charge", "discharge", "capacity",
+        "cycle", "cell_voltage", "pack",
+    ],
+    "hvac": [
+        "hvac", "ahu", "chiller", "compressor", "damper", "thermostat",
+        "setpoint", "supply_air", "return_air", "coil", "refrigerant",
+    ],
+    "water_treatment": [
+        "pump", "filter", "chlorine", "turbidity", "ph", "dissolved",
+        "membrane", "backwash", "effluent", "influent",
+    ],
+    "telecom": [
+        "rssi", "snr", "bandwidth", "latency", "antenna", "rf",
+        "base_station", "throughput", "packet", "signal",
+    ],
+    "marine": [
+        "hull", "propeller", "rudder", "ballast", "draught", "navigation",
+        "knot", "sea_state", "bilge",
+    ],
+    "rail": [
+        "traction", "pantograph", "bogie", "signal", "axle", "rail",
+        "catenary", "brake_cylinder",
+    ],
+    "agriculture": [
+        "soil", "irrigation", "moisture", "greenhouse", "crop", "fertigation",
+        "ph", "nutrient", "ec",
+    ],
+    "semiconductor": [
+        "wafer", "chamber", "vacuum", "plasma", "deposition", "etch",
+        "cleanroom", "resist", "lithography",
+    ],
+    "oil_gas": [
+        "wellhead", "pipeline", "drill", "crude", "separator", "compressor",
+        "flare", "bop", "mud",
+    ],
+    "generic_iot": [
+        "sensor", "device", "gateway", "node", "reading",
+    ],
 }
 
 _TYPE_DISPLAY_NAMES: Dict[str, str] = {
@@ -48,6 +99,19 @@ _TYPE_DISPLAY_NAMES: Dict[str, str] = {
     "medical_device": "Medical Monitoring System",
     "aerospace": "Flight Data System",
     "industrial": "Industrial Process System",
+    "energy": "Energy & Power System",
+    "solar_energy": "Solar & Photovoltaic System",
+    "wind_energy": "Wind Energy System",
+    "battery_system": "Battery & Energy Storage System",
+    "hvac": "HVAC & Building System",
+    "water_treatment": "Water & Fluid System",
+    "telecom": "Telecommunications System",
+    "marine": "Marine & Maritime System",
+    "rail": "Rail & Railway System",
+    "agriculture": "Agriculture & AgTech System",
+    "semiconductor": "Semiconductor & Cleanroom System",
+    "oil_gas": "Oil, Gas & Pipeline System",
+    "generic_iot": "Generic IoT / Sensor Network",
 }
 
 _METADATA_TYPE_PATTERNS: Dict[str, List[str]] = {
@@ -60,6 +124,19 @@ _METADATA_TYPE_PATTERNS: Dict[str, List[str]] = {
     "robot": ["robot", "robotic", "automation", "arm", "manipulator"],
     "medical_device": ["medical", "patient", "health", "clinical", "diagnostic"],
     "aerospace": ["aerospace", "flight", "aircraft", "aviation", "drone", "uav"],
+    "energy": ["power grid", "substation", "generator", "utility", "electrical grid"],
+    "solar_energy": ["solar", "photovoltaic", "pv system", "irradiance", "solar farm"],
+    "wind_energy": ["wind farm", "wind turbine", "nacelle", "wind energy"],
+    "battery_system": ["battery management", "bms", "energy storage", "lithium", "cell balancing"],
+    "hvac": ["hvac", "air conditioning", "heating", "ventilation", "building management"],
+    "water_treatment": ["water treatment", "desalination", "wastewater", "filtration"],
+    "telecom": ["telecom", "5g", "base station", "wireless", "cellular"],
+    "marine": ["marine", "vessel", "ship", "maritime", "offshore"],
+    "rail": ["railway", "rail", "locomotive", "train", "rolling stock"],
+    "agriculture": ["agriculture", "farming", "greenhouse", "irrigation", "agritech"],
+    "semiconductor": ["semiconductor", "fab", "cleanroom", "wafer", "lithography"],
+    "oil_gas": ["oil", "gas", "petroleum", "drilling", "pipeline", "refinery"],
+    "generic_iot": ["iot", "sensor network", "connected devices"],
 }
 
 
@@ -328,8 +405,21 @@ def _generate_description(
         "medical_device": f"Medical device monitoring {n_fields} health parameters from {n_sources} source(s).",
         "aerospace": f"Aerospace system tracking {n_fields} flight parameters from {n_sources} data source(s).",
         "industrial": f"Industrial process system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "energy": f"Energy & power system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "solar_energy": f"Solar photovoltaic system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "wind_energy": f"Wind energy system tracking {n_fields} parameters from {n_sources} source(s).",
+        "battery_system": f"Battery & energy storage system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "hvac": f"HVAC & building system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "water_treatment": f"Water & fluid system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "telecom": f"Telecommunications system tracking {n_fields} parameters from {n_sources} source(s).",
+        "marine": f"Marine & maritime system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "rail": f"Rail & railway system tracking {n_fields} parameters from {n_sources} source(s).",
+        "agriculture": f"Agriculture & AgTech system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "semiconductor": f"Semiconductor & cleanroom system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "oil_gas": f"Oil, gas & pipeline system monitoring {n_fields} parameters from {n_sources} source(s).",
+        "generic_iot": f"IoT sensor network monitoring {n_fields} parameters from {n_sources} source(s).",
     }
-    return templates.get(suggested_type, "System monitoring and analysis.")
+    return templates.get(suggested_type, f"System monitoring {n_fields} parameters from {n_sources} source(s).")
 
 
 def _build_reasoning(

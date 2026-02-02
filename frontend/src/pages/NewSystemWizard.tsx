@@ -24,7 +24,21 @@ import {
   FileJson,
   FileSpreadsheet,
   File,
-  Lightbulb
+  Lightbulb,
+  Sun,
+  Wind,
+  Battery,
+  Thermometer,
+  Droplets,
+  Radio,
+  Ship,
+  Train,
+  Leaf,
+  Fuel,
+  Wifi,
+  Shield,
+  Component,
+  Eye,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -45,21 +59,50 @@ interface UploadedFile {
   error?: string;
 }
 
-interface DiscoveredField {
+interface EnrichedField {
   name: string;
-  inferred_type: string;
+  display_name?: string;
+  description?: string;
+  type?: string;
   physical_unit?: string | null;
-  inferred_meaning?: string;
-  confidence: number;
-  sample_values?: unknown[];
+  physical_unit_full?: string | null;
+  category?: string;
+  component?: string | null;
+  engineering_context?: {
+    typical_range?: { min: number; max: number } | null;
+    operating_range_description?: string | null;
+    what_high_means?: string | null;
+    what_low_means?: string | null;
+    safety_critical?: boolean;
+    design_limit_hint?: { min: number; max: number } | null;
+  };
+  value_interpretation?: {
+    assessment?: string;
+  };
+  confidence?: { type: number; unit: number; meaning: number; overall: number } | number;
+  reasoning?: string;
   source_file?: string;
-  field_category?: 'content' | 'temporal' | 'identifier' | 'auxiliary';
+  sample_values?: unknown[];
+  // Legacy compat
+  inferred_type?: string;
+  inferred_meaning?: string;
+  field_category?: string;
+}
+
+interface FieldRelationshipV2 {
+  fields: string[];
+  relationship: string;
+  description: string;
+  expected_correlation?: string;
+  diagnostic_value?: string;
 }
 
 interface ConfirmationRequest {
-  type?: 'field_confirmation' | 'relationship_confirmation';
+  field?: string;
   field_name?: string;
+  reason?: string;
   question: string;
+  type?: string;
   inferred_unit?: string | null;
   inferred_type?: string;
   sample_values?: unknown[];
@@ -70,17 +113,67 @@ interface AIRecommendation {
   suggested_type: string;
   suggested_description: string;
   confidence: number;
-  reasoning: string;
+  reasoning?: string;
+  system_subtype?: string | null;
+  domain?: string | null;
+  detected_components?: { name: string; role: string; fields: string[] }[];
+  probable_use_case?: string | null;
+  data_characteristics?: {
+    temporal_resolution?: string;
+    duration_estimate?: string;
+    completeness?: string;
+  };
+  analysis_summary?: {
+    files_analyzed: number;
+    total_records: number;
+    unique_fields: number;
+    ai_powered?: boolean;
+  };
 }
 
-// System type options
-const systemTypes = [
-  { id: 'vehicle', name: 'Vehicle', icon: Car, description: 'Cars, trucks, EVs, autonomous vehicles' },
-  { id: 'robot', name: 'Robot', icon: Cpu, description: 'Industrial robots, robotic arms, drones' },
-  { id: 'medical_device', name: 'Medical Device', icon: Heart, description: 'MRI, CT scanners, diagnostic equipment' },
-  { id: 'aerospace', name: 'Aerospace', icon: Rocket, description: 'Aircraft, satellites, propulsion systems' },
-  { id: 'industrial', name: 'Industrial', icon: Factory, description: 'Manufacturing equipment, pumps, motors' },
-];
+// Icon map for system types
+const systemTypeIcons: Record<string, typeof Car> = {
+  vehicle: Car,
+  aerospace: Rocket,
+  robot: Cpu,
+  medical_device: Heart,
+  industrial: Factory,
+  energy: Zap,
+  solar_energy: Sun,
+  wind_energy: Wind,
+  battery_system: Battery,
+  hvac: Thermometer,
+  water_treatment: Droplets,
+  telecom: Radio,
+  marine: Ship,
+  rail: Train,
+  agriculture: Leaf,
+  semiconductor: Cpu,
+  oil_gas: Fuel,
+  generic_iot: Wifi,
+};
+
+// Static fallback system types (used before API response)
+const defaultSystemTypes: Record<string, string> = {
+  vehicle: 'Vehicle & Automotive',
+  aerospace: 'Aerospace & Aviation',
+  robot: 'Robotics & Automation',
+  medical_device: 'Medical & Biomedical',
+  industrial: 'Industrial Manufacturing',
+  energy: 'Energy & Power Systems',
+  solar_energy: 'Solar & Photovoltaic',
+  wind_energy: 'Wind Energy',
+  battery_system: 'Battery & Energy Storage',
+  hvac: 'HVAC & Building Systems',
+  water_treatment: 'Water & Fluid Systems',
+  telecom: 'Telecommunications',
+  marine: 'Marine & Maritime',
+  rail: 'Rail & Railway',
+  agriculture: 'Agriculture & AgTech',
+  semiconductor: 'Semiconductor & Cleanroom',
+  oil_gas: 'Oil, Gas & Pipeline',
+  generic_iot: 'Generic IoT / Sensor Network',
+};
 
 // Steps - new order
 const steps = [
@@ -116,20 +209,24 @@ export default function NewSystemWizard() {
     description: '',
   });
   const [aiRecommendation, setAiRecommendation] = useState<AIRecommendation | null>(null);
+  const [availableSystemTypes, setAvailableSystemTypes] = useState<Record<string, string>>(defaultSystemTypes);
 
   // Step 3: Discovered schema
-  const [analysisId, setAnalysisId] = useState<string | null>(null);  // Analysis session ID
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [createdSystemId, setCreatedSystemId] = useState<string | null>(null);
-  const [discoveredFields, setDiscoveredFields] = useState<DiscoveredField[]>([]);
+  const [discoveredFields, setDiscoveredFields] = useState<EnrichedField[]>([]);
+  const [fieldRelationships, setFieldRelationships] = useState<FieldRelationshipV2[]>([]);
+  const [blindSpots, setBlindSpots] = useState<string[]>([]);
   const [confirmationRequests, setConfirmationRequests] = useState<ConfirmationRequest[]>([]);
   const [recordCount, setRecordCount] = useState(0);
+  const [aiPowered, setAiPowered] = useState(false);
 
   // Step 4: Confirmations
   const [confirmations, setConfirmations] = useState<Record<string, { confirmed: boolean; correctedValue?: string }>>({});
 
-  // Get only field confirmations (not relationship confirmations)
+  // Get confirmation requests (new format uses field, legacy uses field_name)
   const fieldConfirmations = confirmationRequests.filter(
-    (req) => req.type === 'field_confirmation' || req.field_name
+    (req) => req.field || req.field_name || req.type === 'field_confirmation'
   );
 
   // Navigation
@@ -176,6 +273,12 @@ export default function NewSystemWizard() {
 
         // Set AI recommendations
         setAiRecommendation(result.recommendation);
+        setAiPowered(result.ai_powered || false);
+
+        // Update available system types from API
+        if (result.available_system_types) {
+          setAvailableSystemTypes(result.available_system_types);
+        }
 
         // Pre-fill form with AI suggestions
         setSystemData({
@@ -186,8 +289,10 @@ export default function NewSystemWizard() {
           description: result.recommendation?.suggested_description || '',
         });
 
-        // Store discovered fields for later
+        // Store discovered fields (now LLM-enriched)
         setDiscoveredFields(result.discovered_fields || []);
+        setFieldRelationships(result.field_relationships || []);
+        setBlindSpots(result.blind_spots || []);
         setConfirmationRequests(result.confirmation_requests || []);
         setRecordCount(result.total_records || 0);
 
@@ -378,17 +483,45 @@ export default function NewSystemWizard() {
           <div className="space-y-6">
             {/* AI Recommendation Banner */}
             {aiRecommendation && (
-              <div className="bg-primary-500/10 border border-primary-500/30 rounded-lg p-4">
+              <div className={clsx(
+                'rounded-lg p-4 border',
+                aiPowered
+                  ? 'bg-primary-500/10 border-primary-500/30'
+                  : 'bg-stone-700/50 border-stone-600'
+              )}>
                 <div className="flex items-start gap-3">
-                  <Lightbulb className="w-5 h-5 text-primary-400 mt-0.5" />
-                  <div>
-                    <h3 className="font-medium text-primary-400">Smart Analysis Complete</h3>
+                  {aiPowered ? (
+                    <Brain className="w-5 h-5 text-primary-400 mt-0.5" />
+                  ) : (
+                    <Lightbulb className="w-5 h-5 text-stone-400 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <h3 className={clsx('font-medium', aiPowered ? 'text-primary-400' : 'text-stone-300')}>
+                      {aiPowered ? 'AI-Powered Analysis Complete' : 'Rule-Based Analysis Complete'}
+                    </h3>
                     <p className="text-sm text-stone-300 mt-1">
-                      {aiRecommendation.reasoning}
+                      {aiRecommendation.suggested_description || aiRecommendation.reasoning}
                     </p>
-                    <p className="text-xs text-stone-400 mt-2">
-                      Confidence: {(aiRecommendation.confidence * 100).toFixed(0)}%
-                    </p>
+                    {aiRecommendation.probable_use_case && (
+                      <p className="text-sm text-stone-400 mt-1">
+                        Use case: {aiRecommendation.probable_use_case}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-4 mt-2">
+                      <span className="text-xs text-stone-400">
+                        Confidence: {(aiRecommendation.confidence * 100).toFixed(0)}%
+                      </span>
+                      {aiRecommendation.system_subtype && (
+                        <span className="text-xs text-primary-300 bg-primary-500/10 px-2 py-0.5 rounded">
+                          {aiRecommendation.system_subtype}
+                        </span>
+                      )}
+                      {aiRecommendation.data_characteristics?.temporal_resolution && (
+                        <span className="text-xs text-stone-400">
+                          Resolution: {aiRecommendation.data_characteristics.temporal_resolution}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -417,28 +550,38 @@ export default function NewSystemWizard() {
                   <span className="ml-2 text-xs text-primary-400">(Smart Detection)</span>
                 )}
               </label>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {systemTypes.map((type) => (
-                  <button
-                    key={type.id}
-                    onClick={() => setSystemData((prev) => ({ ...prev, system_type: type.id }))}
-                    className={clsx(
-                      'p-4 rounded-lg border-2 text-left transition-all',
-                      systemData.system_type === type.id
-                        ? 'border-primary-500 bg-primary-500/10'
-                        : 'border-stone-600 bg-stone-700/50 hover:border-stone-500'
-                    )}
-                  >
-                    <type.icon
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
+                {Object.entries(availableSystemTypes).map(([typeId, displayName]) => {
+                  const IconComp = systemTypeIcons[typeId] || Component;
+                  const isRecommended = aiRecommendation?.suggested_type === typeId;
+                  return (
+                    <button
+                      key={typeId}
+                      onClick={() => setSystemData((prev) => ({ ...prev, system_type: typeId }))}
                       className={clsx(
-                        'w-6 h-6 mb-2',
-                        systemData.system_type === type.id ? 'text-primary-400' : 'text-stone-400'
+                        'p-4 rounded-lg border-2 text-left transition-all relative',
+                        systemData.system_type === typeId
+                          ? 'border-primary-500 bg-primary-500/10'
+                          : isRecommended
+                          ? 'border-primary-500/40 bg-primary-500/5 hover:border-primary-500'
+                          : 'border-stone-600 bg-stone-700/50 hover:border-stone-500'
                       )}
-                    />
-                    <p className="font-medium text-white">{type.name}</p>
-                    <p className="text-xs text-stone-400 mt-1">{type.description}</p>
-                  </button>
-                ))}
+                    >
+                      {isRecommended && (
+                        <span className="absolute -top-2 -right-2 px-1.5 py-0.5 bg-primary-500 text-white text-[10px] font-bold rounded">
+                          AI
+                        </span>
+                      )}
+                      <IconComp
+                        className={clsx(
+                          'w-5 h-5 mb-2',
+                          systemData.system_type === typeId ? 'text-primary-400' : 'text-stone-400'
+                        )}
+                      />
+                      <p className="font-medium text-white text-sm">{displayName}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -495,12 +638,112 @@ export default function NewSystemWizard() {
           auxiliary: { label: 'Auxiliary', color: 'text-stone-400', bgColor: 'bg-stone-600/30 border-stone-500/30', description: 'Low-value or redundant fields' },
         };
 
-        const contentFields = discoveredFields.filter((f) => (f.field_category || 'content') === 'content');
-        const temporalFields = discoveredFields.filter((f) => f.field_category === 'temporal');
-        const identifierFields = discoveredFields.filter((f) => f.field_category === 'identifier');
-        const auxiliaryFields = discoveredFields.filter((f) => f.field_category === 'auxiliary');
+        // Use new 'category' field, fallback to legacy 'field_category'
+        const getCategory = (f: EnrichedField) => f.category || f.field_category || 'content';
+        const contentFields = discoveredFields.filter((f) => getCategory(f) === 'content');
+        const temporalFields = discoveredFields.filter((f) => getCategory(f) === 'temporal');
+        const identifierFields = discoveredFields.filter((f) => getCategory(f) === 'identifier');
+        const auxiliaryFields = discoveredFields.filter((f) => getCategory(f) === 'auxiliary');
 
-        const renderFieldGroup = (fields: DiscoveredField[], category: string) => {
+        // Get overall confidence for a field (handle both object and number formats)
+        const getOverallConf = (f: EnrichedField): number => {
+          if (typeof f.confidence === 'number') return f.confidence;
+          if (f.confidence && typeof f.confidence === 'object') return f.confidence.overall || 0.5;
+          return 0.5;
+        };
+
+        const renderFieldCard = (field: EnrichedField, info: typeof categoryInfo[string]) => {
+          const conf = getOverallConf(field);
+          const displayName = field.display_name || field.name;
+          const description = field.description || field.inferred_meaning || 'Unknown';
+          const fieldType = field.type || field.inferred_type || 'unknown';
+          const unit = field.physical_unit;
+          const ec = field.engineering_context;
+
+          return (
+            <div
+              key={field.name}
+              className={clsx('rounded-lg p-4 border', info.bgColor)}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  {ec?.safety_critical ? (
+                    <Shield className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                  ) : (
+                    <Database className="w-4 h-4 text-stone-400 mt-0.5 shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-medium text-white text-sm">{displayName}</p>
+                    <p className="font-mono text-xs text-stone-400">{field.name}</p>
+                    <p className="text-sm text-stone-300 mt-1">{description}</p>
+                    {field.component && (
+                      <span className="inline-block mt-1 px-2 py-0.5 bg-stone-600/50 rounded text-xs text-stone-300">
+                        {field.component}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right shrink-0 ml-3">
+                  <span className={clsx('text-sm font-medium', getConfidenceColor(conf))}>
+                    {(conf * 100).toFixed(0)}%
+                  </span>
+                  <div className="flex items-center gap-2 mt-1 justify-end">
+                    <span className="px-2 py-0.5 bg-stone-700 rounded text-xs text-stone-300">
+                      {fieldType}
+                    </span>
+                    {unit && (
+                      <span className="px-2 py-0.5 bg-primary-500/20 rounded text-xs text-primary-300">
+                        {unit}
+                      </span>
+                    )}
+                    {ec?.safety_critical && (
+                      <span className="px-2 py-0.5 bg-red-500/20 rounded text-xs text-red-300">
+                        Safety
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Engineering context (collapsed by default, shown for AI-powered) */}
+              {aiPowered && ec && (ec.what_high_means || ec.operating_range_description) && (
+                <div className="mt-3 pt-3 border-t border-stone-600/50 space-y-1">
+                  {ec.operating_range_description && (
+                    <p className="text-xs text-stone-400">{ec.operating_range_description}</p>
+                  )}
+                  {ec.what_high_means && (
+                    <p className="text-xs text-stone-400">
+                      <span className="text-stone-500">High:</span> {ec.what_high_means}
+                    </p>
+                  )}
+                  {ec.what_low_means && (
+                    <p className="text-xs text-stone-400">
+                      <span className="text-stone-500">Low:</span> {ec.what_low_means}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Value assessment */}
+              {field.value_interpretation?.assessment && (
+                <div className="mt-2 pt-2 border-t border-stone-600/50">
+                  <p className="text-xs text-stone-400">{field.value_interpretation.assessment}</p>
+                </div>
+              )}
+
+              {/* Sample values fallback */}
+              {!field.value_interpretation?.assessment && field.sample_values && field.sample_values.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-stone-600/50">
+                  <p className="text-xs text-stone-400">
+                    Samples: <span className="font-mono text-stone-300">{field.sample_values.slice(0, 4).join(', ')}</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        const renderFieldGroup = (fields: EnrichedField[], category: string) => {
           if (fields.length === 0) return null;
           const info = categoryInfo[category];
           return (
@@ -511,45 +754,7 @@ export default function NewSystemWizard() {
                 <span className="text-xs text-stone-400">— {info.description}</span>
               </div>
               <div className="space-y-2">
-                {fields.map((field) => (
-                  <div
-                    key={field.name}
-                    className={clsx('rounded-lg p-4 border', info.bgColor)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <Database className="w-4 h-4 text-stone-400" />
-                        <div>
-                          <p className="font-medium text-white font-mono text-sm">{field.name}</p>
-                          <p className="text-sm text-stone-400">{field.inferred_meaning || 'Unknown'}</p>
-                          {field.source_file && (
-                            <p className="text-xs text-stone-400 mt-1">From: {field.source_file}</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className={clsx('text-sm font-medium', getConfidenceColor(field.confidence))}>
-                          {(field.confidence * 100).toFixed(0)}%
-                        </span>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="px-2 py-0.5 bg-stone-700 rounded text-xs text-stone-300">
-                            {field.inferred_type}
-                          </span>
-                          {field.physical_unit && (
-                            <span className="px-2 py-0.5 bg-primary-500/20 rounded text-xs text-primary-300">
-                              {field.physical_unit}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-stone-600/50">
-                      <p className="text-xs text-stone-400">
-                        Samples: <span className="font-mono text-stone-300">{(field.sample_values || []).slice(0, 3).join(', ')}</span>
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                {fields.map((field) => renderFieldCard(field, info))}
               </div>
             </div>
           );
@@ -557,11 +762,17 @@ export default function NewSystemWizard() {
 
         return (
           <div className="space-y-6">
-            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+            {/* Header */}
+            <div className={clsx(
+              'rounded-lg p-4 border',
+              aiPowered ? 'bg-primary-500/10 border-primary-500/30' : 'bg-green-500/10 border-green-500/30'
+            )}>
               <div className="flex items-center gap-3">
-                <Sparkles className="w-5 h-5 text-green-400" />
+                {aiPowered ? <Brain className="w-5 h-5 text-primary-400" /> : <Sparkles className="w-5 h-5 text-green-400" />}
                 <div>
-                  <h3 className="font-medium text-green-400">Schema Discovery Complete</h3>
+                  <h3 className={clsx('font-medium', aiPowered ? 'text-primary-400' : 'text-green-400')}>
+                    {aiPowered ? 'AI-Powered Schema Discovery' : 'Schema Discovery Complete'}
+                  </h3>
                   <p className="text-sm text-stone-300">
                     Analyzed {recordCount.toLocaleString()} records from {uploadedFiles.length} files
                     and discovered {discoveredFields.length} fields
@@ -569,6 +780,22 @@ export default function NewSystemWizard() {
                 </div>
               </div>
             </div>
+
+            {/* Detected components (AI only) */}
+            {aiPowered && aiRecommendation?.detected_components && aiRecommendation.detected_components.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-stone-300 mb-2">Detected Components</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {aiRecommendation.detected_components.map((comp, idx) => (
+                    <div key={idx} className="bg-stone-700/50 rounded-lg p-3 border border-stone-600">
+                      <p className="font-medium text-white text-sm">{comp.name}</p>
+                      <p className="text-xs text-stone-400">{comp.role}</p>
+                      <p className="text-xs text-stone-500 mt-1">{comp.fields.length} fields</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Category summary */}
             <div className="grid grid-cols-4 gap-3">
@@ -588,12 +815,51 @@ export default function NewSystemWizard() {
               })}
             </div>
 
+            {/* Field groups */}
             <div className="space-y-6">
               {renderFieldGroup(contentFields, 'content')}
               {renderFieldGroup(temporalFields, 'temporal')}
               {renderFieldGroup(identifierFields, 'identifier')}
               {renderFieldGroup(auxiliaryFields, 'auxiliary')}
             </div>
+
+            {/* Relationships (AI only) */}
+            {aiPowered && fieldRelationships.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-stone-300 mb-2">Field Relationships</h4>
+                <div className="space-y-2">
+                  {fieldRelationships.slice(0, 5).map((rel, idx) => (
+                    <div key={idx} className="bg-stone-700/30 rounded-lg p-3 border border-stone-600/50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-primary-300">{rel.fields.join(' ↔ ')}</span>
+                        <span className="px-2 py-0.5 bg-stone-600 rounded text-xs text-stone-300">{rel.relationship}</span>
+                      </div>
+                      <p className="text-xs text-stone-400 mt-1">{rel.description}</p>
+                      {rel.diagnostic_value && (
+                        <p className="text-xs text-stone-500 mt-1">{rel.diagnostic_value}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Blind spots (AI only) */}
+            {aiPowered && blindSpots.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-stone-300 mb-2 flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-yellow-400" />
+                  Blind Spots Detected
+                </h4>
+                <div className="space-y-1">
+                  {blindSpots.map((spot, idx) => (
+                    <div key={idx} className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-3">
+                      <p className="text-xs text-stone-300">{spot}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
       }
@@ -616,7 +882,7 @@ export default function NewSystemWizard() {
 
             <div className="space-y-4">
               {fieldConfirmations.map((req, idx) => {
-                const fieldName = req.field_name || `field_${idx}`;
+                const fieldName = req.field || req.field_name || `field_${idx}`;
                 return (
                   <div
                     key={fieldName}
@@ -629,28 +895,38 @@ export default function NewSystemWizard() {
                         : 'border-stone-600 bg-stone-700/50'
                     )}
                   >
-                    <p className="text-white mb-4">{req.question}</p>
+                    <p className="text-white mb-2">{req.question}</p>
+                    {req.reason && (
+                      <p className="text-sm text-stone-400 mb-4">{req.reason}</p>
+                    )}
 
-                    <div className="bg-stone-700 rounded-lg p-3 mb-4">
-                      <div className="flex items-center gap-4 text-sm">
-                        <div>
-                          <span className="text-stone-400">Type: </span>
-                          <span className="text-stone-300">{req.inferred_type || 'unknown'}</span>
+                    {/* Show type/unit/samples if available (legacy or enriched) */}
+                    {(req.inferred_type || req.inferred_unit || req.sample_values) && (
+                      <div className="bg-stone-700 rounded-lg p-3 mb-4">
+                        <div className="flex items-center gap-4 text-sm">
+                          {req.inferred_type && (
+                            <div>
+                              <span className="text-stone-400">Type: </span>
+                              <span className="text-stone-300">{req.inferred_type}</span>
+                            </div>
+                          )}
+                          {req.inferred_unit && (
+                            <div>
+                              <span className="text-stone-400">Unit: </span>
+                              <span className="text-primary-300">{req.inferred_unit}</span>
+                            </div>
+                          )}
                         </div>
-                        {req.inferred_unit && (
-                          <div>
-                            <span className="text-stone-400">Unit: </span>
-                            <span className="text-primary-300">{req.inferred_unit}</span>
+                        {req.sample_values && req.sample_values.length > 0 && (
+                          <div className="mt-2">
+                            <span className="text-stone-400 text-sm">Samples: </span>
+                            <span className="text-stone-300 font-mono text-sm">
+                              {req.sample_values.slice(0, 3).join(', ')}
+                            </span>
                           </div>
                         )}
                       </div>
-                      <div className="mt-2">
-                        <span className="text-stone-400 text-sm">Samples: </span>
-                        <span className="text-stone-300 font-mono text-sm">
-                          {(req.sample_values || []).slice(0, 3).join(', ')}
-                        </span>
-                      </div>
-                    </div>
+                    )}
 
                     <div className="flex gap-3">
                       <button
