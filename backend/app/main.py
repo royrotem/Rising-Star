@@ -4,8 +4,13 @@ UAIE - Universal Autonomous Insight Engine
 Main FastAPI application entry point.
 """
 
-from fastapi import FastAPI
+import os
+from pathlib import Path
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import uvicorn
 
@@ -20,6 +25,9 @@ from .api.baselines import router as baselines_router
 from .api.schedules import router as schedules_router
 from .agents.orchestrator import orchestrator
 from .services.scheduler import scheduler
+
+# Path to the built frontend (populated in production Docker image)
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
 @asynccontextmanager
@@ -78,18 +86,6 @@ app.include_router(baselines_router, prefix=settings.API_PREFIX)
 app.include_router(schedules_router, prefix=settings.API_PREFIX)
 
 
-@app.get("/")
-async def root():
-    """Root endpoint with API information."""
-    return {
-        "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "description": "The Tesla Standard – Democratized as a Service",
-        "docs": "/docs",
-        "health": "/health",
-    }
-
-
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -104,6 +100,41 @@ async def health_check():
 async def get_agents_status():
     """Get status of all AI agents."""
     return orchestrator.get_agent_status()
+
+
+# ── Serve built frontend (production) ──────────────────────────────────────
+# Mount static assets (JS, CSS, images) if the build directory exists.
+# The SPA catch-all below returns index.html for any non-API route so that
+# React Router can handle client-side routing.
+
+if STATIC_DIR.is_dir():
+    # Serve /assets/* directly (Vite puts hashed bundles here)
+    assets_dir = STATIC_DIR / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/")
+    async def serve_spa_root():
+        return FileResponse(str(STATIC_DIR / "index.html"))
+
+    @app.get("/{path:path}")
+    async def serve_spa(request: Request, path: str):
+        """Serve static file if it exists, otherwise return index.html for SPA routing."""
+        file_path = STATIC_DIR / path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(STATIC_DIR / "index.html"))
+else:
+    @app.get("/")
+    async def root():
+        """Root endpoint with API information (dev mode — no frontend build)."""
+        return {
+            "name": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "description": "The Tesla Standard – Democratized as a Service",
+            "docs": "/docs",
+            "health": "/health",
+        }
 
 
 if __name__ == "__main__":

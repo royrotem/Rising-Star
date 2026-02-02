@@ -186,6 +186,63 @@ scripts\START.bat
 
 ---
 
+## Cloud Deployment (Free Domain)
+
+Deploy UAIE to the internet with a free `.onrender.com` domain and automatic Git-based deployments.
+
+### One-Click Deploy on Render.com
+
+1. **Push** this repository to GitHub
+2. Go to [dashboard.render.com/blueprints](https://dashboard.render.com/blueprints)
+3. Click **New Blueprint Instance** and connect your GitHub repo
+4. Set the `ANTHROPIC_API_KEY` environment variable (optional)
+5. Click **Apply**
+
+Render will:
+- Build the production Docker image (frontend + backend in one container)
+- Deploy to `https://<your-app-name>.onrender.com`
+- **Auto-deploy** on every push to the main branch
+- Run health checks at `/health`
+- Provide 1 GB persistent disk for data storage
+
+> The `render.yaml` blueprint in this repo defines the full infrastructure as code.
+
+### Manual Deploy on Render
+
+1. Go to [dashboard.render.com](https://dashboard.render.com) → **New Web Service**
+2. Connect your GitHub repository
+3. Settings:
+   - **Runtime:** Docker
+   - **Dockerfile Path:** `./Dockerfile`
+   - **Docker Context:** `.`
+   - **Plan:** Free
+4. Environment variables:
+   - `ANTHROPIC_API_KEY` — your API key (optional)
+   - `CORS_ORIGINS` — `https://<your-app>.onrender.com`
+   - `DEBUG` — `false`
+5. Add a **Disk**: mount path `/app/data`, size 1 GB
+6. Click **Create Web Service**
+
+### CI/CD Pipeline
+
+The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `main`:
+
+1. **Backend checks** — Python syntax validation across all modules
+2. **Frontend checks** — `npm ci` + `npm run build` (TypeScript + Vite)
+3. **Docker build** — Builds the production image and runs a `/health` smoke test
+
+Render auto-deploys from the main branch after CI passes.
+
+### Other Free Hosting Options
+
+| Platform | How | Notes |
+|----------|-----|-------|
+| [Render.com](https://render.com) | `render.yaml` included | Recommended. Free tier with auto-deploy |
+| [Railway.app](https://railway.app) | Docker deploy | $5/month free credit |
+| [Fly.io](https://fly.io) | `fly launch` with Dockerfile | Free tier with 3 VMs |
+
+---
+
 ## Architecture
 
 ```
@@ -330,7 +387,11 @@ Rising-Star/
 │   ├── stop-docker.bat             # Windows: stop Docker
 │   └── update.bat                  # Windows: pull & update deps
 │
-├── docker-compose.yml              # Full stack orchestration
+├── .github/workflows/ci.yml        # CI pipeline (GitHub Actions)
+├── Dockerfile                      # Production image (frontend + backend)
+├── .dockerignore                   # Docker build exclusions
+├── docker-compose.yml              # Full stack orchestration (development)
+├── render.yaml                     # Render.com one-click deploy blueprint
 ├── .env.example                    # Environment variables template
 ├── .gitignore
 └── README.md
