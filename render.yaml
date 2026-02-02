@@ -9,6 +9,10 @@
 #   5. Click "Apply" — Render builds and deploys automatically
 #
 # Auto-deploy: every push to the default branch triggers a new deploy.
+#
+# Note: Free tier does not support persistent disks. Data is stored in the
+# container filesystem and will be lost on redeploy. Upgrade to a paid plan
+# and add a disk (mountPath: /app/data) for persistence.
 # =============================================================================
 
 services:
@@ -34,7 +38,3 @@ services:
       # Render injects PORT automatically
       - key: WEB_CONCURRENCY
         value: "2"
-    disk:
-      name: uaie-data
-      mountPath: /app/data
-      sizeGB: 1
