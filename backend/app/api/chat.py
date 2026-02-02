@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from ..services.data_store import data_store
 from ..services.chat_service import chat_service, conversation_store
+from ..utils import load_saved_analysis
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -45,6 +46,7 @@ async def send_message(system_id: str, body: ChatMessage):
 
     records = data_store.get_ingested_records(system_id, limit=5000)
     schema = system.get("discovered_schema", [])
+    analysis = load_saved_analysis(system_id)
 
     result = await chat_service.chat(
         system_id=system_id,
@@ -52,6 +54,7 @@ async def send_message(system_id: str, body: ChatMessage):
         system=system,
         records=records,
         schema=schema,
+        analysis=analysis,
     )
 
     # Get the last assistant message from the store

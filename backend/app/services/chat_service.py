@@ -8,6 +8,7 @@ analysis or query endpoints.
 """
 
 import json
+import math
 import os
 import threading
 from datetime import datetime
@@ -116,7 +117,8 @@ class ChatService:
     # ── Context builders ────────────────────────────────────────────
 
     def _build_system_context(self, system: Dict, records: List[Dict],
-                              schema: list) -> str:
+                              schema: list,
+                              analysis: Optional[Dict] = None) -> str:
         """Build a concise context string about the system & its data."""
         lines = [
             f"System: {system.get('name', 'Unknown')}",
@@ -169,6 +171,101 @@ class ChatService:
                     if unit or meaning:
                         lines.append(f"  - {f.get('name', '?')}: {meaning} ({unit})")
 
+        # ── Saved analysis results (from last analysis run) ──────────
+        if analysis:
+            lines.append("\n--- LAST ANALYSIS RESULTS ---")
+            lines.append(f"Analysis timestamp: {analysis.get('timestamp', 'unknown')}")
+            if analysis.get("health_score") is not None:
+                lines.append(f"Computed health score: {analysis['health_score']}")
+
+            # Anomalies
+            anomalies = analysis.get("anomalies", [])
+            if anomalies:
+                lines.append(f"\nDetected anomalies ({len(anomalies)} total):")
+                for i, a in enumerate(anomalies[:15], 1):
+                    sev = a.get("severity", "unknown")
+                    title = a.get("title", a.get("description", "Unnamed"))
+                    impact = a.get("impact_score", "N/A")
+                    fields = ", ".join(a.get("affected_fields", [])[:3])
+                    explanation = a.get("natural_language_explanation", "")
+                    lines.append(f"  {i}. [{sev.upper()}] {title}")
+                    if fields:
+                        lines.append(f"     Affected fields: {fields}")
+                    lines.append(f"     Impact: {impact}")
+                    if explanation:
+                        lines.append(f"     Explanation: {explanation[:300]}")
+                    causes = a.get("possible_causes", [])
+                    if causes:
+                        lines.append(f"     Possible causes: {'; '.join(causes[:3])}")
+                    recs = a.get("recommendations", [])
+                    if recs:
+                        lines.append(f"     Recommendations: {'; '.join(recs[:3])}")
+            else:
+                lines.append("\nNo anomalies detected in last analysis.")
+
+            # Engineering margins
+            margins = analysis.get("engineering_margins", [])
+            if margins:
+                lines.append(f"\nEngineering margins ({len(margins)} tracked):")
+                for m in margins[:10]:
+                    comp = m.get("component", m.get("field", "unknown"))
+                    param = m.get("parameter", "")
+                    pct = m.get("margin_percentage", "N/A")
+                    trend = m.get("trend", "stable")
+                    breach = m.get("projected_breach_date")
+                    safety = m.get("safety_critical", False)
+                    label = f"{comp}" + (f" / {param}" if param else "")
+                    lines.append(f"  - {label}: margin={pct}%, trend={trend}"
+                                 + (f", projected breach: {breach}" if breach else "")
+                                 + (" [SAFETY CRITICAL]" if safety else ""))
+
+            # Blind spots
+            blind_spots = analysis.get("blind_spots", [])
+            if blind_spots:
+                lines.append(f"\nBlind spots / data gaps ({len(blind_spots)}):")
+                for bs in blind_spots[:5]:
+                    title = bs.get("title", bs.get("description", "Unknown"))
+                    sensor = bs.get("recommended_sensor", "")
+                    improvement = bs.get("diagnostic_coverage_improvement", "")
+                    lines.append(f"  - {title}")
+                    if sensor:
+                        lines.append(f"    Recommended sensor: {sensor}")
+                    if improvement:
+                        lines.append(f"    Diagnostic improvement: {improvement}%")
+
+            # Insights & recommendations from analysis
+            insights = analysis.get("insights", [])
+            if isinstance(insights, list) and insights:
+                lines.append(f"\nInsights ({len(insights)}):")
+                for ins in insights[:5]:
+                    if isinstance(ins, dict):
+                        lines.append(f"  - {ins.get('title', ins.get('description', str(ins)))}")
+                    else:
+                        lines.append(f"  - {str(ins)[:200]}")
+
+            recs = analysis.get("recommendations", [])
+            if isinstance(recs, list) and recs:
+                lines.append(f"\nRecommendations ({len(recs)}):")
+                for r in recs[:5]:
+                    if isinstance(r, dict):
+                        lines.append(f"  - {r.get('title', r.get('description', str(r)))}")
+                    else:
+                        lines.append(f"  - {str(r)[:200]}")
+
+            # AI agent analysis summary
+            ai_analysis = analysis.get("ai_analysis", {})
+            if isinstance(ai_analysis, dict):
+                agent_count = ai_analysis.get("agents_completed", 0)
+                if agent_count:
+                    lines.append(f"\nAI agents that ran: {agent_count}")
+                summary = ai_analysis.get("summary", "")
+                if summary:
+                    lines.append(f"AI summary: {str(summary)[:500]}")
+        else:
+            lines.append("\n--- NO ANALYSIS RUN YET ---")
+            lines.append("Analysis has not been run on this system yet. "
+                         "The user may ask you to help interpret raw data or suggest running analysis.")
+
         return "\n".join(lines)
 
     def _system_prompt(self) -> str:
@@ -177,14 +274,26 @@ class ChatService:
             "embedded in the Universal Autonomous Insight Engine platform. "
             "You help engineers understand their system's telemetry data, "
             "investigate anomalies, and make data-driven decisions.\n\n"
+            "You have access to:\n"
+            "- System metadata (name, type, status, health score)\n"
+            "- Raw ingested data with field statistics (min, max, mean, std)\n"
+            "- Schema information with physical units and inferred meanings\n"
+            "- Saved analysis results (if analysis has been run), including:\n"
+            "  - Detected anomalies with severity, impact, root causes, and recommendations\n"
+            "  - Engineering margins with trend and projected breach dates\n"
+            "  - Blind spots / data gaps with recommended sensors\n"
+            "  - Insights and recommendations from the analysis engine\n"
+            "- Conversation history for continuity\n\n"
             "Guidelines:\n"
             "- Be concise but thorough. Engineers appreciate precision.\n"
             "- Reference specific field names, values, and statistics from the data.\n"
-            "- When explaining anomalies, provide possible root causes.\n"
-            "- Suggest actionable next steps when appropriate.\n"
+            "- When explaining anomalies, reference the detected anomalies from analysis results.\n"
+            "- Provide possible root causes and actionable next steps.\n"
+            "- If analysis hasn't been run yet, suggest the user run analysis first.\n"
             "- If you don't have enough data to answer, say so clearly.\n"
             "- Format important values with **bold** and use bullet points for lists.\n"
             "- When asked about statistics, compute or reference the provided data.\n"
+            "- Reference engineering margins and blind spots when relevant.\n"
             "- You can reference field correlations and trends if available.\n"
         )
 
@@ -197,6 +306,7 @@ class ChatService:
         system: Dict,
         records: List[Dict],
         schema: list,
+        analysis: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """
         Process a user message and return an AI response.
@@ -212,10 +322,10 @@ class ChatService:
         conversation_store.add_message(system_id, "user", user_message)
 
         # Always compute the local analysis engine answer first
-        engine_result = self._fallback_response(user_message, system, records)
+        engine_result = self._fallback_response(user_message, system, records, analysis)
 
-        # Build context
-        system_context = self._build_system_context(system, records, schema)
+        # Build context (includes analysis results if available)
+        system_context = self._build_system_context(system, records, schema, analysis)
         history = conversation_store.get_messages(system_id, limit=20)
 
         # Try AI-powered response (with engine answer as extra context)
@@ -320,11 +430,13 @@ class ChatService:
         user_message: str,
         system: Dict,
         records: List[Dict],
+        analysis: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """
         Comprehensive data-aware response engine — works entirely without
         an API key.  Uses pandas/numpy to compute real statistics, detect
         outliers, summarise health, find correlations, and more.
+        When analysis results are available, uses them for richer answers.
         """
         query = user_message.lower()
 
@@ -347,7 +459,13 @@ class ChatService:
 
         # ── Route to the best handler ─────────────────────────────
         if any(w in query for w in ["anomal", "problem", "issue", "wrong", "unusual", "strange", "weird", "outlier"]):
-            return self._fb_anomalies(df, numeric_cols, system)
+            return self._fb_anomalies(df, numeric_cols, system, analysis)
+
+        if any(w in query for w in ["margin", "safety", "limit", "breach", "critical"]):
+            return self._fb_margins(system, analysis)
+
+        if any(w in query for w in ["blind spot", "gap", "missing", "sensor"]):
+            return self._fb_blind_spots(analysis)
 
         if any(w in query for w in ["health", "status", "overview", "summar", "how is", "how's"]):
             return self._fb_health_summary(df, numeric_cols, system)
@@ -393,9 +511,45 @@ class ChatService:
 
     # ── Fallback handler: anomalies ──────────────────────────────
 
-    def _fb_anomalies(self, df: pd.DataFrame, numeric_cols: list, system: Dict) -> Dict:
-        lines = ["Here are the **anomalies** I detected by analyzing the data:\n"]
+    def _fb_anomalies(self, df: pd.DataFrame, numeric_cols: list, system: Dict,
+                      analysis: Optional[Dict] = None) -> Dict:
+        lines = []
         findings = []
+
+        # If we have saved analysis results, show those first (they're richer)
+        saved_anomalies = (analysis or {}).get("anomalies", [])
+        if saved_anomalies:
+            lines.append(f"**{len(saved_anomalies)} anomalies** detected from the last analysis:\n")
+            for i, a in enumerate(saved_anomalies[:10], 1):
+                sev = a.get("severity", "unknown").upper()
+                title = a.get("title", a.get("description", "Unnamed"))
+                impact = a.get("impact_score", 0)
+                explanation = a.get("natural_language_explanation", "")
+                lines.append(f"**{i}. [{sev}] {title}** (impact: {impact})")
+                if explanation:
+                    lines.append(f"   {explanation[:250]}")
+                causes = a.get("possible_causes", [])
+                if causes:
+                    lines.append(f"   Possible causes: {', '.join(causes[:3])}")
+                recs = a.get("recommendations", [])
+                if recs:
+                    lines.append(f"   Recommendations: {', '.join(recs[:2])}")
+                lines.append("")
+                findings.append({
+                    "title": title, "severity": sev,
+                    "impact": impact, "source": "analysis_engine"
+                })
+
+            lines.append(f"System health score: **{system.get('health_score', 'N/A')}**")
+            return {
+                "content": "\n".join(lines),
+                "ai_powered": False,
+                "data": {"type": "anomaly_scan", "findings": sanitize_for_json(findings),
+                         "source": "saved_analysis"},
+            }
+
+        # Fallback: compute from raw data
+        lines.append("Here are the **anomalies** I detected by analyzing the raw data:\n")
 
         for col in numeric_cols:
             series = df[col].dropna()
@@ -435,6 +589,86 @@ class ChatService:
             "content": "\n".join(lines),
             "ai_powered": False,
             "data": {"type": "anomaly_scan", "findings": sanitize_for_json(findings)},
+        }
+
+    # ── Fallback handler: engineering margins ─────────────────────
+
+    def _fb_margins(self, system: Dict, analysis: Optional[Dict] = None) -> Dict:
+        margins = (analysis or {}).get("engineering_margins", [])
+        if not margins:
+            return {
+                "content": (
+                    "No engineering margin data available yet. "
+                    "Run a full analysis first to compute safety margins for each parameter."
+                ),
+                "ai_powered": False,
+                "data": {"type": "margins"},
+            }
+
+        lines = [f"**Engineering Margins** ({len(margins)} tracked parameters):\n"]
+        critical = []
+        for m in margins:
+            comp = m.get("component", m.get("field", "unknown"))
+            param = m.get("parameter", "")
+            pct = m.get("margin_percentage", "N/A")
+            trend = m.get("trend", "stable")
+            breach = m.get("projected_breach_date")
+            safety = m.get("safety_critical", False)
+            label = f"{comp}" + (f" / {param}" if param else "")
+
+            marker = ""
+            if isinstance(pct, (int, float)) and pct < 10:
+                marker = " **[LOW]**"
+            if safety:
+                marker += " **[SAFETY CRITICAL]**"
+                critical.append(label)
+
+            lines.append(
+                f"- **{label}**: margin = **{pct}%**, trend = {trend}"
+                + (f", projected breach: {breach}" if breach else "")
+                + marker
+            )
+
+        if critical:
+            lines.append(f"\n**Warning**: {len(critical)} safety-critical parameter(s): {', '.join(critical)}")
+
+        lines.append(f"\nSystem health score: **{system.get('health_score', 'N/A')}**")
+        return {
+            "content": "\n".join(lines),
+            "ai_powered": False,
+            "data": {"type": "margins", "count": len(margins)},
+        }
+
+    # ── Fallback handler: blind spots / data gaps ──────────────
+
+    def _fb_blind_spots(self, analysis: Optional[Dict] = None) -> Dict:
+        blind_spots = (analysis or {}).get("blind_spots", [])
+        if not blind_spots:
+            return {
+                "content": (
+                    "No blind spots identified yet. Run a full analysis to detect "
+                    "data gaps and missing sensor coverage."
+                ),
+                "ai_powered": False,
+                "data": {"type": "blind_spots"},
+            }
+
+        lines = [f"**Blind Spots & Data Gaps** ({len(blind_spots)} identified):\n"]
+        for i, bs in enumerate(blind_spots, 1):
+            title = bs.get("title", bs.get("description", "Unknown"))
+            sensor = bs.get("recommended_sensor", "")
+            improvement = bs.get("diagnostic_coverage_improvement", "")
+            lines.append(f"**{i}. {title}**")
+            if sensor:
+                lines.append(f"   Recommended sensor: {sensor}")
+            if improvement:
+                lines.append(f"   Diagnostic coverage improvement: {improvement}%")
+            lines.append("")
+
+        return {
+            "content": "\n".join(lines),
+            "ai_powered": False,
+            "data": {"type": "blind_spots", "count": len(blind_spots)},
         }
 
     # ── Fallback handler: health summary ─────────────────────────
