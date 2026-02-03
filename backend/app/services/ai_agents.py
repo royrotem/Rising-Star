@@ -25,12 +25,17 @@ real-world engineering context.
 
 import asyncio
 import json
+import logging
 import os
 import re
 import hashlib
+import time
+import traceback as tb_module
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from dataclasses import dataclass, field
+
+logger = logging.getLogger("uaie.ai_agents")
 
 try:
     import anthropic
@@ -202,11 +207,14 @@ class BaseAgent:
         """Run this agent's analysis.  Falls back to rule-based if no API key."""
         self._init_client()
         if not self.client:
+            logger.warning("[%s] No API client (no key?) — using fallback", self.name)
             return self._fallback_analyze(system_type, data_profile)
 
         data_summary = self._build_data_summary(data_profile)
         prompt = self._build_prompt(system_type, system_name, data_summary, metadata_context)
+        logger.info("[%s] Sending LLM request (model=%s, prompt=%d chars)...", self.name, self.model, len(prompt))
 
+        t_start = time.time()
         try:
             response = await asyncio.wait_for(
                 self.client.messages.create(
@@ -217,13 +225,23 @@ class BaseAgent:
                 ),
                 timeout=AGENT_TIMEOUT,
             )
+            t_elapsed = round(time.time() - t_start, 2)
+            usage = {"input": response.usage.input_tokens, "output": response.usage.output_tokens} if response.usage else "?"
+            logger.info("[%s] LLM response in %.2fs: stop=%s, usage=%s",
+                        self.name, t_elapsed, response.stop_reason, usage)
+
             text = response.content[0].text
-            return self._parse_response(text)
+            findings = self._parse_response(text)
+            logger.info("[%s] Parsed %d findings", self.name, len(findings))
+            return findings
         except asyncio.TimeoutError:
-            print(f"[{self.name}] Timed out after {AGENT_TIMEOUT}s — using fallback")
+            t_elapsed = round(time.time() - t_start, 2)
+            logger.error("[%s] TIMEOUT after %.2fs (limit=%ds) — using fallback", self.name, t_elapsed, AGENT_TIMEOUT)
             return self._fallback_analyze(system_type, data_profile)
         except Exception as e:
-            print(f"[{self.name}] LLM call failed: {e}")
+            t_elapsed = round(time.time() - t_start, 2)
+            logger.error("[%s] LLM call FAILED after %.2fs: %s: %s", self.name, t_elapsed, type(e).__name__, e)
+            logger.error(tb_module.format_exc())
             return self._fallback_analyze(system_type, data_profile)
 
     # Subclasses override these ───────────────────────────
@@ -1271,7 +1289,11 @@ class AgentOrchestrator:
         else:
             active_agents = list(self.agents)
 
-        print(f"[Orchestrator] Running {len(active_agents)} agents: {[a.name for a in active_agents]}")
+        logger.info("=" * 60)
+        logger.info("[Orchestrator] START | system_id=%s | system_type=%s | system_name=%s",
+                    system_id, system_type, system_name)
+        logger.info("[Orchestrator] Running %d agents: %s", len(active_agents), [a.name for a in active_agents])
+        logger.info("[Orchestrator] web_grounding=%s, timeout=%ds", enable_web_grounding, ORCHESTRATOR_TIMEOUT)
 
         # Create proper asyncio Tasks so we can cancel them on global timeout
         tasks = [
@@ -1281,13 +1303,17 @@ class AgentOrchestrator:
             )
             for agent in active_agents
         ]
+        t_orch_start = time.time()
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
                 timeout=ORCHESTRATOR_TIMEOUT,
             )
+            logger.info("[Orchestrator] All agents finished in %.2fs", round(time.time() - t_orch_start, 2))
         except asyncio.TimeoutError:
-            print(f"[Orchestrator] Global timeout ({ORCHESTRATOR_TIMEOUT}s) hit — collecting partial results")
+            elapsed = round(time.time() - t_orch_start, 2)
+            logger.error("[Orchestrator] GLOBAL TIMEOUT (%ds) hit after %.2fs — collecting partial results",
+                         ORCHESTRATOR_TIMEOUT, elapsed)
             # Cancel remaining tasks and collect whatever finished
             results = []
             for task in tasks:
@@ -1306,7 +1332,7 @@ class AgentOrchestrator:
 
         for agent, result in zip(active_agents, results):
             if isinstance(result, Exception):
-                print(f"[Orchestrator] Agent {agent.name} failed: {result}")
+                logger.error("[Orchestrator] Agent '%s' FAILED: %s: %s", agent.name, type(result).__name__, result)
                 agent_statuses.append({
                     "agent": agent.name,
                     "status": "error",
@@ -1315,6 +1341,7 @@ class AgentOrchestrator:
                 })
             else:
                 all_findings.extend(result)
+                logger.info("[Orchestrator] Agent '%s' OK: %d findings", agent.name, len(result))
                 agent_statuses.append({
                     "agent": agent.name,
                     "status": "success",
@@ -1330,6 +1357,13 @@ class AgentOrchestrator:
 
         # Merge and deduplicate
         unified = self._merge_findings(all_findings, system_id)
+
+        success_count = sum(1 for s in agent_statuses if s["status"] == "success")
+        error_count = sum(1 for s in agent_statuses if s["status"] == "error")
+        logger.info("=" * 60)
+        logger.info("[Orchestrator] COMPLETE | agents: %d ok, %d failed | raw_findings: %d → unified: %d",
+                    success_count, error_count, len(all_findings), len(unified))
+        logger.info("=" * 60)
 
         return {
             "anomalies": [self._anomaly_to_dict(a) for a in unified],

@@ -8,7 +8,9 @@ existing POST /systems/{id}/analyze endpoint.
 
 import asyncio
 import json
+import logging
 import time
+import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -25,7 +27,9 @@ from ..utils import (
     merge_ai_anomalies,
     save_analysis,
 )
-from .app_settings import get_ai_settings
+from .app_settings import get_ai_settings, get_anthropic_api_key
+
+logger = logging.getLogger("uaie.streaming")
 
 router = APIRouter(prefix="/systems", tags=["Streaming"])
 
@@ -66,6 +70,11 @@ async def analyze_system_stream(
     async def event_stream():
         try:
             t0 = time.time()
+            logger.info("=" * 60)
+            logger.info("ANALYZE-STREAM START | system_id=%s", system_id)
+            logger.info("  system: %s", system.get("name", "?"))
+            logger.info("  system_type: %s", system.get("system_type", "?"))
+            logger.info("  selected_agents: %s", selected_agents or "ALL")
 
             # ── Stage 1: Loading data ──
             yield _sse_event("stage", {
@@ -80,7 +89,13 @@ async def analyze_system_stream(
             system_type = system.get("system_type", "industrial")
             system_name = system.get("name", "Unknown System")
 
+            logger.info("[Stage 1] Loaded %d records, %d sources, %d schema fields",
+                        len(records) if records else 0,
+                        len(sources) if sources else 0,
+                        len(discovered_schema) if discovered_schema else 0)
+
             if not records:
+                logger.warning("[Stage 1] No records — aborting analysis")
                 yield _sse_event("error", {
                     "message": "No data ingested. Upload data before running analysis.",
                 })
@@ -96,6 +111,7 @@ async def analyze_system_stream(
             await asyncio.sleep(0.05)
 
             # ── Stage 2: Rule-based analysis engine (6 layers) ──
+            logger.info("[Stage 2] Running 6-layer rule-based analysis engine...")
             yield _sse_event("stage", {
                 "stage": "rule_engine",
                 "message": "Running 6-layer anomaly detection engine...",
@@ -111,6 +127,8 @@ async def analyze_system_stream(
             )
 
             anomalies = [anomaly_to_dict(a) for a in result.anomalies]
+            logger.info("[Stage 2] Rule engine complete: %d anomalies, health_score=%.1f",
+                        len(anomalies), result.health_score or 0)
 
             # Report layer results
             layer_names = [
@@ -142,8 +160,17 @@ async def analyze_system_stream(
             ai_result = None
             agent_statuses: List[Dict] = []
 
-            if ai_cfg.get("enable_ai_agents", True):
+            api_key = get_anthropic_api_key()
+            ai_enabled = ai_cfg.get("enable_ai_agents", True)
+            logger.info("[Stage 3] AI config: ai_enabled=%s, api_key=%s (len=%d), web_grounding=%s",
+                        ai_enabled,
+                        "YES" if api_key else "NO",
+                        len(api_key) if api_key else 0,
+                        ai_cfg.get("enable_web_grounding", True))
+
+            if ai_enabled:
                 agent_count = len(selected_agents) if selected_agents else 13
+                logger.info("[Stage 3] Launching %d AI agents...", agent_count)
                 yield _sse_event("stage", {
                     "stage": "ai_agents",
                     "message": f"Launching AI agent swarm ({agent_count} specialized agents)...",
@@ -152,11 +179,17 @@ async def analyze_system_stream(
 
                 try:
                     data_profile = build_data_profile(records, discovered_schema)
+                    logger.info("[Stage 3] Data profile built: %d fields, %d records, %d sample rows",
+                                data_profile.get("field_count", 0),
+                                data_profile.get("record_count", 0),
+                                len(data_profile.get("sample_rows", [])))
+
                     metadata_context = ""
                     meta = system.get("metadata", {})
                     if meta.get("description"):
                         metadata_context = meta["description"]
 
+                    t_ai_start = time.time()
                     ai_result = await ai_orchestrator.run_analysis(
                         system_id=system_id,
                         system_type=system_type,
@@ -166,14 +199,29 @@ async def analyze_system_stream(
                         enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
                         selected_agents=selected_agents,
                     )
+                    t_ai_elapsed = round(time.time() - t_ai_start, 2)
+
+                    logger.info("[Stage 3] AI orchestrator finished in %.2fs", t_ai_elapsed)
+                    if ai_result:
+                        logger.info("[Stage 3] AI result: ai_powered=%s, agents_used=%s, raw_findings=%d, unified=%d",
+                                    ai_result.get("ai_powered"),
+                                    ai_result.get("agents_used", []),
+                                    ai_result.get("total_findings_raw", 0),
+                                    ai_result.get("total_anomalies_unified", 0))
 
                     # Emit per-agent statuses
                     ai_agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
                     for idx, st in enumerate(ai_agent_statuses):
+                        agent_name = st.get("agent", f"Agent {idx+1}")
+                        agent_status = st.get("status", "unknown")
+                        agent_findings = st.get("findings", 0)
+                        logger.info("[Stage 3]   agent '%s': status=%s, findings=%d%s",
+                                    agent_name, agent_status, agent_findings,
+                                    f", error={st.get('error')}" if st.get("error") else "")
                         yield _sse_event("agent_complete", {
-                            "agent": st.get("agent", f"Agent {idx+1}"),
-                            "status": st.get("status", "unknown"),
-                            "findings": st.get("findings", 0),
+                            "agent": agent_name,
+                            "status": agent_status,
+                            "findings": agent_findings,
                             "perspective": st.get("perspective", ""),
                         })
                         await asyncio.sleep(0.05)
@@ -189,6 +237,8 @@ async def analyze_system_stream(
                     })
 
                 except Exception as e:
+                    logger.error("[Stage 3] AI agents EXCEPTION: %s: %s", type(e).__name__, e)
+                    logger.error(traceback.format_exc())
                     yield _sse_event("stage", {
                         "stage": "ai_agents_error",
                         "message": f"AI agents failed (using rule-based only): {e}",
@@ -196,6 +246,7 @@ async def analyze_system_stream(
                     })
                     agent_statuses = [{"agent": "AI Orchestrator", "status": "error", "error": str(e)}]
             else:
+                logger.info("[Stage 3] AI agents DISABLED — skipping")
                 yield _sse_event("stage", {
                     "stage": "ai_agents_skipped",
                     "message": "AI agents disabled — using rule-based analysis only",
@@ -259,6 +310,17 @@ async def analyze_system_stream(
 
             elapsed = round(time.time() - t0, 2)
 
+            logger.info("=" * 60)
+            logger.info("ANALYZE-STREAM COMPLETE | system_id=%s | elapsed=%.2fs", system_id, elapsed)
+            logger.info("  health_score: %.1f", analysis_result.get("health_score", 0) or 0)
+            logger.info("  total_anomalies: %d", len(anomalies))
+            logger.info("  ai_powered: %s", analysis_result.get("ai_analysis", {}).get("ai_powered", False))
+            logger.info("  agents_used: %s", analysis_result.get("ai_analysis", {}).get("agents_used", []))
+            logger.info("  raw_findings: %d, unified: %d",
+                        analysis_result.get("ai_analysis", {}).get("total_findings_raw", 0),
+                        analysis_result.get("ai_analysis", {}).get("total_anomalies_unified", 0))
+            logger.info("=" * 60)
+
             yield _sse_event("stage", {
                 "stage": "complete",
                 "message": f"Analysis complete in {elapsed}s",
@@ -268,6 +330,8 @@ async def analyze_system_stream(
             yield _sse_event("result", analysis_result)
 
         except Exception as exc:
+            logger.error("ANALYZE-STREAM EXCEPTION: %s: %s", type(exc).__name__, exc)
+            logger.error(traceback.format_exc())
             yield _sse_event("error", {"message": str(exc)})
 
     return StreamingResponse(
