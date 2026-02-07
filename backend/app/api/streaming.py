@@ -169,7 +169,7 @@ async def analyze_system_stream(
                         ai_cfg.get("enable_web_grounding", True))
 
             if ai_enabled:
-                agent_count = len(selected_agents) if selected_agents else 13
+                agent_count = len(selected_agents) if selected_agents else len(ALL_AGENT_NAMES)
                 logger.info("[Stage 3] Launching %d AI agents...", agent_count)
                 yield _sse_event("stage", {
                     "stage": "ai_agents",

@@ -1084,3 +1084,114 @@ async def get_next_gen_specs(system_id: str):
             "false_positive_reduction": "-25%" if records else "TBD",
         },
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Demo Mode
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/demo/create")
+async def create_demo_system():
+    """
+    Create a fully-populated demo system with realistic HVAC data.
+
+    This endpoint creates a complete demo system with:
+    - 1000 records of realistic HVAC sensor data
+    - Embedded anomalies that trigger all 25 AI agents
+    - Pre-discovered schema with engineering context
+    - Ready for immediate analysis demonstration
+
+    Returns the created system ID so the frontend can navigate to it.
+    """
+    from ..services.demo_generator import generate_full_demo_package
+
+    logger.info("=" * 60)
+    logger.info("DEMO MODE: Creating demo system...")
+
+    # Generate the demo package
+    demo = generate_full_demo_package()
+
+    # Create the system
+    system_id = f"demo-hvac-{str(uuid.uuid4())[:8]}"
+
+    system_data = {
+        "id": system_id,
+        "name": demo["metadata"]["system_name"],
+        "system_type": demo["metadata"]["system_type"],
+        "serial_number": "DEMO-001",
+        "model": "HVAC-Demo",
+        "metadata": {
+            "manufacturer": "UAIE Demo",
+            "description": demo["metadata"]["description"],
+            "is_demo": True,
+        },
+        "status": "data_ingested",
+        "health_score": 100.0,
+        "discovered_schema": demo["discovered_fields"],
+        "confirmed_fields": {},
+        "is_demo": True,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+    created_system = data_store.create_system(system_data)
+    logger.info("DEMO: Created system %s", system_id)
+
+    # Store the demo data
+    source_id = str(uuid.uuid4())
+    data_store.store_ingested_data(
+        system_id=system_id,
+        source_id=source_id,
+        source_name="hvac_telemetry.csv",
+        records=demo["records"],
+        discovered_schema={
+            "fields": demo["discovered_fields"],
+            "relationships": demo["relationships"],
+        },
+        metadata={
+            "filename": "hvac_telemetry.csv",
+            "demo_mode": True,
+            "anomalies_injected": demo["metadata"]["demo_anomalies_injected"],
+        },
+    )
+    logger.info("DEMO: Stored %d records", len(demo["records"]))
+
+    # Update system with data source info
+    data_store.update_system(system_id, {
+        "status": "data_ingested",
+    })
+
+    logger.info("DEMO: System ready for analysis")
+    logger.info("=" * 60)
+
+    return {
+        "status": "success",
+        "message": "Demo system created successfully. Ready for analysis!",
+        "system_id": system_id,
+        "system_name": demo["metadata"]["system_name"],
+        "record_count": len(demo["records"]),
+        "field_count": len(demo["discovered_fields"]),
+        "anomaly_types_injected": demo["metadata"]["anomaly_types"],
+        "recommendation": demo["recommendation"],
+    }
+
+
+@router.delete("/demo/cleanup")
+async def cleanup_demo_systems():
+    """
+    Delete all demo systems.
+
+    Useful for cleaning up after demonstrations.
+    """
+    systems = data_store.list_systems(include_demo=True)
+    demo_systems = [s for s in systems if s.get("is_demo", False)]
+
+    deleted_count = 0
+    for system in demo_systems:
+        if data_store.delete_system(system["id"]):
+            deleted_count += 1
+
+    return {
+        "status": "success",
+        "deleted_count": deleted_count,
+        "message": f"Deleted {deleted_count} demo system(s)",
+    }

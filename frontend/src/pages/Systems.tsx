@@ -5,6 +5,8 @@ import {
   Trash2,
   ChevronRight,
   Loader2,
+  Sparkles,
+  Play,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -16,10 +18,27 @@ export default function Systems() {
   const [systems, setSystems] = useState<System[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [creatingDemo, setCreatingDemo] = useState(false);
 
   useEffect(() => {
     loadSystems();
   }, []);
+
+  const handleCreateDemo = async () => {
+    setCreatingDemo(true);
+    try {
+      const response = await fetch('/api/v1/systems/demo/create', { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to create demo');
+      const data = await response.json();
+      // Navigate to the new demo system
+      navigate(`/systems/${data.system_id}`);
+    } catch (error) {
+      console.error('Failed to create demo:', error);
+      alert('Failed to create demo system. Please try again.');
+    } finally {
+      setCreatingDemo(false);
+    }
+  };
 
   const loadSystems = async () => {
     try {
@@ -66,24 +85,76 @@ export default function Systems() {
             {systems.length} system{systems.length !== 1 ? 's' : ''} monitored
           </p>
         </div>
-        <button
-          onClick={() => navigate('/systems/new')}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add System
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleCreateDemo}
+            disabled={creatingDemo}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-all shadow-lg shadow-purple-500/20"
+          >
+            {creatingDemo ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Creating Demo...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Try Demo
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => navigate('/systems/new')}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add System
+          </button>
+        </div>
       </div>
 
       {systems.length === 0 ? (
-        <div className="text-center py-20">
-          <p className="text-stone-400 mb-3">No systems configured</p>
-          <button
-            onClick={() => navigate('/systems/new')}
-            className="text-primary-400 hover:text-primary-300 text-sm"
-          >
-            Add your first system
-          </button>
+        <div className="text-center py-16">
+          <div className="mb-8">
+            <Sparkles className="w-12 h-12 text-purple-400 mx-auto mb-4" />
+            <h2 className="text-lg font-medium text-white mb-2">Welcome to UAIE</h2>
+            <p className="text-stone-400 max-w-md mx-auto">
+              Universal Autonomous Insight Engine — AI-powered anomaly detection for hardware systems.
+              Try the demo to see 25 AI agents analyze real sensor data.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <button
+              onClick={handleCreateDemo}
+              disabled={creatingDemo}
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 text-white rounded-lg font-medium transition-all shadow-lg shadow-purple-500/25"
+            >
+              {creatingDemo ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Creating Demo...
+                </>
+              ) : (
+                <>
+                  <Play className="w-5 h-5" />
+                  Run Interactive Demo
+                </>
+              )}
+            </button>
+            <span className="text-stone-500">or</span>
+            <button
+              onClick={() => navigate('/systems/new')}
+              className="flex items-center gap-2 px-6 py-3 bg-stone-700 hover:bg-stone-600 text-white rounded-lg font-medium transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Add Your Own System
+            </button>
+          </div>
+
+          <p className="mt-8 text-xs text-stone-500">
+            Demo creates an HVAC system with 1000 records and embedded anomalies for all 25 AI agents
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
