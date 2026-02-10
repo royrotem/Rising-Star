@@ -20,7 +20,8 @@ from fastapi.responses import StreamingResponse
 from ..services.data_store import data_store
 from ..services.analysis_engine import analysis_engine
 from ..services.ai_agents import orchestrator as ai_orchestrator, ALL_AGENT_NAMES
-from ..services.agentic_analyzers import agentic_orchestrator
+# External agents available but not used in production yet:
+# from ..services.agentic_analyzers import agentic_orchestrator
 from ..services.recommendation import build_data_profile
 from ..utils import (
     sanitize_for_json,
@@ -45,14 +46,12 @@ def _sse_event(event: str, data: Any) -> str:
 async def analyze_system_stream(
     system_id: str,
     agents: Optional[str] = Query(None, description="Comma-separated list of agent names to run. If omitted, all agents run."),
-    mode: Optional[str] = Query("standard", description="Analysis mode: 'standard' (25 LLM agents) or 'agentic' (5 tool-using AI agents)"),
 ):
     """
     Stream analysis progress via Server-Sent Events.
 
     Query params:
       - agents: comma-separated agent names (e.g. "Statistical Analyst,Domain Expert")
-      - mode: 'standard' (25 specialized LLM prompts) or 'agentic' (5 AI agents with tool-use)
 
     Events emitted:
       - stage: { stage, message, progress }  — progress updates
@@ -70,18 +69,14 @@ async def analyze_system_stream(
     if agents:
         selected_agents = [a.strip() for a in agents.split(",") if a.strip()]
 
-    # Determine analysis mode
-    use_agentic = mode == "agentic"
-
     async def event_stream():
         try:
             t0 = time.time()
             logger.info("=" * 60)
-            logger.info("ANALYZE-STREAM START | system_id=%s | mode=%s", system_id, mode)
+            logger.info("ANALYZE-STREAM START | system_id=%s", system_id)
             logger.info("  system: %s", system.get("name", "?"))
             logger.info("  system_type: %s", system.get("system_type", "?"))
             logger.info("  selected_agents: %s", selected_agents or "ALL")
-            logger.info("  analysis_mode: %s", "AGENTIC (tool-using AI)" if use_agentic else "STANDARD (25 LLM agents)")
 
             # ── Stage 1: Loading data ──
             yield _sse_event("stage", {
@@ -162,195 +157,96 @@ async def analyze_system_stream(
                 "progress": 50,
             })
 
-            # ── Stage 3: AI multi-agent analysis ──
+            # ── Stage 3: AI multi-agent analysis (25 Claude agents) ──
             ai_cfg = get_ai_settings()
             ai_result = None
-            agentic_result = None
             agent_statuses: List[Dict] = []
 
             api_key = get_anthropic_api_key()
             ai_enabled = ai_cfg.get("enable_ai_agents", True)
-            logger.info("[Stage 3] AI config: ai_enabled=%s, api_key=%s (len=%d), web_grounding=%s, agentic_mode=%s",
+            logger.info("[Stage 3] AI config: ai_enabled=%s, api_key=%s (len=%d), web_grounding=%s",
                         ai_enabled,
                         "YES" if api_key else "NO",
                         len(api_key) if api_key else 0,
-                        ai_cfg.get("enable_web_grounding", True),
-                        use_agentic)
+                        ai_cfg.get("enable_web_grounding", True))
 
             if ai_enabled:
-                # Build schema context for agents
-                schema_context = ""
-                if discovered_schema:
-                    field_names = [f.get("name", "") for f in discovered_schema if f.get("name")]
-                    schema_context = f"Fields: {', '.join(field_names)}"
-                meta = system.get("metadata", {})
-                if meta.get("description"):
-                    schema_context += f"\nDescription: {meta['description']}"
+                agent_count = len(selected_agents) if selected_agents else len(ALL_AGENT_NAMES)
+                logger.info("[Stage 3] Launching %d AI agents...", agent_count)
+                yield _sse_event("stage", {
+                    "stage": "ai_agents",
+                    "message": f"Launching AI agent swarm ({agent_count} specialized agents)...",
+                    "progress": 55,
+                })
 
-                if use_agentic:
-                    # ═══════════════════════════════════════════════════════════
-                    # AGENTIC MODE: Tool-using AI agents that explore data
-                    # ═══════════════════════════════════════════════════════════
-                    agentic_agent_names = ["Data Explorer", "Pattern Miner", "Anomaly Hunter",
-                                          "Time Series Investigator", "Root Cause Investigator"]
-                    agent_count = len(agentic_agent_names)
-                    logger.info("[Stage 3] AGENTIC MODE: Launching %d tool-using AI agents...", agent_count)
+                try:
+                    data_profile = build_data_profile(records, discovered_schema)
+                    logger.info("[Stage 3] Data profile built: %d fields, %d records, %d sample rows",
+                                data_profile.get("field_count", 0),
+                                data_profile.get("record_count", 0),
+                                len(data_profile.get("sample_rows", [])))
+
+                    metadata_context = ""
+                    meta = system.get("metadata", {})
+                    if meta.get("description"):
+                        metadata_context = meta["description"]
+
+                    t_ai_start = time.time()
+                    ai_result = await ai_orchestrator.run_analysis(
+                        system_id=system_id,
+                        system_type=system_type,
+                        system_name=system_name,
+                        data_profile=data_profile,
+                        metadata_context=metadata_context,
+                        enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
+                        selected_agents=selected_agents,
+                    )
+                    t_ai_elapsed = round(time.time() - t_ai_start, 2)
+
+                    logger.info("[Stage 3] AI orchestrator finished in %.2fs", t_ai_elapsed)
+                    if ai_result:
+                        logger.info("[Stage 3] AI result: ai_powered=%s, agents_used=%s, raw_findings=%d, unified=%d",
+                                    ai_result.get("ai_powered"),
+                                    ai_result.get("agents_used", []),
+                                    ai_result.get("total_findings_raw", 0),
+                                    ai_result.get("total_anomalies_unified", 0))
+
+                    # Emit per-agent statuses
+                    ai_agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
+                    for idx, st in enumerate(ai_agent_statuses):
+                        agent_name = st.get("agent", f"Agent {idx+1}")
+                        agent_status = st.get("status", "unknown")
+                        agent_findings = st.get("findings", 0)
+                        logger.info("[Stage 3]   agent '%s': status=%s, findings=%d%s",
+                                    agent_name, agent_status, agent_findings,
+                                    f", error={st.get('error')}" if st.get("error") else "")
+                        yield _sse_event("agent_complete", {
+                            "agent": agent_name,
+                            "status": agent_status,
+                            "findings": agent_findings,
+                            "perspective": st.get("perspective", ""),
+                        })
+                        await asyncio.sleep(0.05)
+
+                    agent_statuses = ai_agent_statuses
+
+                    merge_ai_anomalies(anomalies, ai_result)
 
                     yield _sse_event("stage", {
-                        "stage": "agentic_agents",
-                        "message": f"Launching {agent_count} agentic AI investigators (tool-use enabled)...",
-                        "progress": 55,
+                        "stage": "ai_agents_complete",
+                        "message": f"AI agents contributed {ai_result.get('total_findings_raw', 0)} raw findings",
+                        "progress": 85,
                     })
 
-                    try:
-                        t_ai_start = time.time()
-                        agentic_result = await agentic_orchestrator.run_analysis(
-                            records=records,
-                            system_type=system_type,
-                            system_name=system_name,
-                            schema_context=schema_context,
-                            selected_agents=selected_agents,
-                        )
-                        t_ai_elapsed = round(time.time() - t_ai_start, 2)
-
-                        logger.info("[Stage 3] Agentic orchestrator finished in %.2fs", t_ai_elapsed)
-                        if agentic_result:
-                            logger.info("[Stage 3] Agentic result: agents_used=%s, total_findings=%d",
-                                        agentic_result.get("agents_used", []),
-                                        agentic_result.get("total_findings", 0))
-
-                        # Emit per-agent statuses
-                        agentic_statuses = agentic_result.get("agent_statuses", []) if agentic_result else []
-                        for idx, st in enumerate(agentic_statuses):
-                            agent_name = st.get("agent", f"Agent {idx+1}")
-                            agent_status = st.get("status", "unknown")
-                            agent_findings = st.get("findings", 0)
-                            logger.info("[Stage 3]   agentic '%s': status=%s, findings=%d",
-                                        agent_name, agent_status, agent_findings)
-                            yield _sse_event("agent_complete", {
-                                "agent": f"🤖 {agent_name}",
-                                "status": agent_status,
-                                "findings": agent_findings,
-                                "perspective": "Tool-using AI agent",
-                                "agentic": True,
-                            })
-                            await asyncio.sleep(0.1)
-
-                        agent_statuses = agentic_statuses
-
-                        # Convert agentic findings to anomalies format
-                        if agentic_result and agentic_result.get("findings"):
-                            for finding in agentic_result["findings"]:
-                                anomalies.append({
-                                    "id": f"agentic_{hash(finding['title'])}",
-                                    "title": finding.get("title", "Untitled"),
-                                    "description": finding.get("description", ""),
-                                    "severity": finding.get("severity", "medium"),
-                                    "impact_score": {"critical": 95, "high": 80, "medium": 60, "low": 40, "info": 20}.get(finding.get("severity", "medium"), 60),
-                                    "affected_fields": finding.get("affected_fields", []),
-                                    "evidence": finding.get("evidence", {}),
-                                    "recommendation": finding.get("recommendation", ""),
-                                    "detected_by": f"Agentic: {finding.get('agent', 'Unknown')}",
-                                    "detection_type": "agentic_ai",
-                                    "iterations_used": finding.get("iterations_used", 0),
-                                })
-
-                        yield _sse_event("stage", {
-                            "stage": "agentic_complete",
-                            "message": f"Agentic AI found {agentic_result.get('total_findings', 0) if agentic_result else 0} findings",
-                            "progress": 85,
-                        })
-
-                    except Exception as e:
-                        logger.error("[Stage 3] Agentic agents EXCEPTION: %s: %s", type(e).__name__, e)
-                        logger.error(traceback.format_exc())
-                        yield _sse_event("stage", {
-                            "stage": "agentic_error",
-                            "message": f"Agentic agents failed: {e}",
-                            "progress": 85,
-                        })
-                        agent_statuses = [{"agent": "Agentic Orchestrator", "status": "error", "error": str(e)}]
-
-                else:
-                    # ═══════════════════════════════════════════════════════════
-                    # STANDARD MODE: 25 specialized LLM prompt agents
-                    # ═══════════════════════════════════════════════════════════
-                    agent_count = len(selected_agents) if selected_agents else len(ALL_AGENT_NAMES)
-                    logger.info("[Stage 3] STANDARD MODE: Launching %d AI agents...", agent_count)
+                except Exception as e:
+                    logger.error("[Stage 3] AI agents EXCEPTION: %s: %s", type(e).__name__, e)
+                    logger.error(traceback.format_exc())
                     yield _sse_event("stage", {
-                        "stage": "ai_agents",
-                        "message": f"Launching AI agent swarm ({agent_count} specialized agents)...",
-                        "progress": 55,
+                        "stage": "ai_agents_error",
+                        "message": f"AI agents failed (using rule-based only): {e}",
+                        "progress": 85,
                     })
-
-                    try:
-                        data_profile = build_data_profile(records, discovered_schema)
-                        logger.info("[Stage 3] Data profile built: %d fields, %d records, %d sample rows",
-                                    data_profile.get("field_count", 0),
-                                    data_profile.get("record_count", 0),
-                                    len(data_profile.get("sample_rows", [])))
-
-                        metadata_context = ""
-                        meta = system.get("metadata", {})
-                        if meta.get("description"):
-                            metadata_context = meta["description"]
-
-                        t_ai_start = time.time()
-                        ai_result = await ai_orchestrator.run_analysis(
-                            system_id=system_id,
-                            system_type=system_type,
-                            system_name=system_name,
-                            data_profile=data_profile,
-                            metadata_context=metadata_context,
-                            enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
-                            selected_agents=selected_agents,
-                        )
-                        t_ai_elapsed = round(time.time() - t_ai_start, 2)
-
-                        logger.info("[Stage 3] AI orchestrator finished in %.2fs", t_ai_elapsed)
-                        if ai_result:
-                            logger.info("[Stage 3] AI result: ai_powered=%s, agents_used=%s, raw_findings=%d, unified=%d",
-                                        ai_result.get("ai_powered"),
-                                        ai_result.get("agents_used", []),
-                                        ai_result.get("total_findings_raw", 0),
-                                        ai_result.get("total_anomalies_unified", 0))
-
-                        # Emit per-agent statuses
-                        ai_agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
-                        for idx, st in enumerate(ai_agent_statuses):
-                            agent_name = st.get("agent", f"Agent {idx+1}")
-                            agent_status = st.get("status", "unknown")
-                            agent_findings = st.get("findings", 0)
-                            logger.info("[Stage 3]   agent '%s': status=%s, findings=%d%s",
-                                        agent_name, agent_status, agent_findings,
-                                        f", error={st.get('error')}" if st.get("error") else "")
-                            yield _sse_event("agent_complete", {
-                                "agent": agent_name,
-                                "status": agent_status,
-                                "findings": agent_findings,
-                                "perspective": st.get("perspective", ""),
-                            })
-                            await asyncio.sleep(0.05)
-
-                        agent_statuses = ai_agent_statuses
-
-                        merge_ai_anomalies(anomalies, ai_result)
-
-                        yield _sse_event("stage", {
-                            "stage": "ai_agents_complete",
-                            "message": f"AI agents contributed {ai_result.get('total_findings_raw', 0)} raw findings",
-                            "progress": 85,
-                        })
-
-                    except Exception as e:
-                        logger.error("[Stage 3] AI agents EXCEPTION: %s: %s", type(e).__name__, e)
-                        logger.error(traceback.format_exc())
-                        yield _sse_event("stage", {
-                            "stage": "ai_agents_error",
-                            "message": f"AI agents failed (using rule-based only): {e}",
-                            "progress": 85,
-                        })
-                        agent_statuses = [{"agent": "AI Orchestrator", "status": "error", "error": str(e)}]
+                    agent_statuses = [{"agent": "AI Orchestrator", "status": "error", "error": str(e)}]
             else:
                 logger.info("[Stage 3] AI agents DISABLED — skipping")
                 yield _sse_event("stage", {
@@ -390,12 +286,11 @@ async def analyze_system_stream(
                 "insights_summary": result.summary,
                 "recommendations": result.recommendations,
                 "ai_analysis": {
-                    "mode": "agentic" if use_agentic else "standard",
-                    "ai_powered": (agentic_result is not None) if use_agentic else (ai_result.get("ai_powered", False) if ai_result else False),
-                    "agents_used": (agentic_result.get("agents_used", []) if agentic_result else []) if use_agentic else (ai_result.get("agents_used", []) if ai_result else []),
+                    "ai_powered": ai_result.get("ai_powered", False) if ai_result else False,
+                    "agents_used": ai_result.get("agents_used", []) if ai_result else [],
                     "agent_statuses": agent_statuses,
-                    "total_findings_raw": (agentic_result.get("total_findings", 0) if agentic_result else 0) if use_agentic else (ai_result.get("total_findings_raw", 0) if ai_result else 0),
-                    "total_anomalies_unified": (agentic_result.get("total_findings", 0) if agentic_result else 0) if use_agentic else (ai_result.get("total_anomalies_unified", 0) if ai_result else 0),
+                    "total_findings_raw": ai_result.get("total_findings_raw", 0) if ai_result else 0,
+                    "total_anomalies_unified": ai_result.get("total_anomalies_unified", 0) if ai_result else 0,
                 },
             }
 
