@@ -53,5 +53,10 @@ data/
 *.so
 pip-log.txt
 
+# ML model checkpoints (keep trained models, exclude temp files)
+backend/models/*.tmp
+backend/models/*.bak
+backend/models/checkpoint
+
 # Frontend
 frontend/.cache/

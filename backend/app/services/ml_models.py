@@ -35,7 +35,16 @@ except ImportError:
 # TensorFlow is imported lazily inside CNNAutoencoderDetector to avoid slow startup
 HAS_TF = False
 
-MODELS_DIR = Path(__file__).parent.parent.parent / "models"
+from ..core.config import settings
+
+
+def _get_models_dir() -> Path:
+    if settings.MODELS_DIR:
+        return Path(settings.MODELS_DIR)
+    return Path(__file__).parent.parent.parent / "models"
+
+
+MODELS_DIR = _get_models_dir()
 
 # ─── Severity mapping ─────────────────────────────────────────────
 
