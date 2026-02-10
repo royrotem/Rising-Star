@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.tox/
+
+# Docker
+*.tar
+
+# Data (runtime generated)
+backend/data/
+data/
+
+# Python
+*.pyd
+*.so
+pip-log.txt
+
+# ML model checkpoints (keep trained models, exclude temp files)
+backend/models/*.tmp
+backend/models/*.bak
+backend/models/checkpoint
+
+# Frontend
+frontend/.cache/

@@ -1,0 +1,40 @@
+# =============================================================================
+# Render.com Blueprint — One-click deploy for UAIE
+#
+# Usage:
+#   1. Push this repo to GitHub
+#   2. Go to https://dashboard.render.com/blueprints
+#   3. Click "New Blueprint Instance" → connect your repo
+#   4. Set the ANTHROPIC_API_KEY environment variable
+#   5. Click "Apply" — Render builds and deploys automatically
+#
+# Auto-deploy: every push to the default branch triggers a new deploy.
+#
+# Note: Free tier does not support persistent disks. Data is stored in the
+# container filesystem and will be lost on redeploy. Upgrade to a paid plan
+# and add a disk (mountPath: /app/data) for persistence.
+# =============================================================================
+
+services:
+  - type: web
+    name: uaie
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    # Auto-deploy on every push to the main/production branch
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      # Required: your Anthropic API key for AI-powered analysis
+      - key: ANTHROPIC_API_KEY
+        sync: false  # user enters manually
+      # Production CORS — Render injects the .onrender.com URL
+      - key: CORS_ORIGINS
+        value: https://uaie-k5j2.onrender.com,https://uaie.onrender.com
+      # Disable debug in production
+      - key: DEBUG
+        value: "false"
+      # Render injects PORT automatically
+      - key: WEB_CONCURRENCY
+        value: "2"

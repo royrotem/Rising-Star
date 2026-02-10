@@ -1,0 +1,86 @@
+# =============================================================================
+# CI Pipeline — Runs on every push and PR
+# Validates code quality before Render auto-deploys from the main branch.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ── Backend checks ────────────────────────────────────────────────────────
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m py_compile app/main.py
+
+      - name: Check all modules parse
+        run: |
+          find app -name '*.py' -exec python -m py_compile {} +
+
+  # ── Frontend checks ──────────────────────────────────────────────────────
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  # ── Docker build ─────────────────────────────────────────────────────────
+  docker:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -t uaie:ci .
+
+      - name: Smoke test — container starts and /health responds
+        run: |
+          docker run -d --name uaie-test -p 8000:8000 \
+            -e DEBUG=false \
+            -e CORS_ORIGINS="*" \
+            uaie:ci
+          sleep 5
+          curl -sf http://localhost:8000/health | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          assert data['status'] == 'healthy', f'Unhealthy: {data}'
+          print('Health check passed')
+          "
+          docker stop uaie-test
