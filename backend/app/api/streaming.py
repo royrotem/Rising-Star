@@ -22,6 +22,7 @@ from ..services.analysis_engine import analysis_engine
 from ..services.ai_agents import orchestrator as ai_orchestrator, ALL_AGENT_NAMES
 from ..services.agentic_analyzers import agentic_orchestrator
 from ..services.recommendation import build_data_profile
+from ..services.ml_models import ml_orchestrator
 from ..utils import (
     sanitize_for_json,
     anomaly_to_dict,
@@ -159,8 +160,56 @@ async def analyze_system_stream(
             yield _sse_event("stage", {
                 "stage": "rule_engine_complete",
                 "message": f"Rule engine found {len(anomalies)} anomalies",
-                "progress": 50,
+                "progress": 35,
             })
+
+            # ── Stage 2.5: ML model inference ──
+            ml_result: Dict[str, Any] = {
+                "anomalies": [], "model_statuses": [], "total_findings": 0, "models_available": {},
+            }
+            try:
+                yield _sse_event("stage", {
+                    "stage": "ml_models",
+                    "message": "Running ML anomaly detection models...",
+                    "progress": 37,
+                })
+
+                t_ml_start = time.time()
+                ml_result = await ml_orchestrator.run_all(records)
+                t_ml_elapsed = round(time.time() - t_ml_start, 2)
+
+                logger.info("[Stage 2.5] ML models finished in %.2fs: %d findings, available=%s",
+                            t_ml_elapsed, ml_result.get("total_findings", 0),
+                            ml_result.get("models_available", {}))
+
+                # Emit per-model statuses
+                for ms in ml_result.get("model_statuses", []):
+                    ms["elapsed_seconds"] = t_ml_elapsed
+                    yield _sse_event("model_complete", {
+                        "model": ms.get("model", "Unknown"),
+                        "status": ms.get("status", "unknown"),
+                        "findings": ms.get("findings", 0),
+                        "elapsed_seconds": t_ml_elapsed,
+                    })
+                    await asyncio.sleep(0.05)
+
+                # Extend anomalies list with ML findings
+                anomalies.extend(ml_result.get("anomalies", []))
+
+                yield _sse_event("stage", {
+                    "stage": "ml_models_complete",
+                    "message": f"ML models found {ml_result.get('total_findings', 0)} anomalies",
+                    "progress": 50,
+                })
+
+            except Exception as e:
+                logger.error("[Stage 2.5] ML models EXCEPTION: %s: %s", type(e).__name__, e)
+                logger.error(traceback.format_exc())
+                yield _sse_event("stage", {
+                    "stage": "ml_models_error",
+                    "message": f"ML models failed (continuing): {e}",
+                    "progress": 50,
+                })
 
             # ── Stage 3: AI multi-agent analysis ──
             ai_cfg = get_ai_settings()
@@ -389,6 +438,11 @@ async def analyze_system_stream(
                 "insights": result.insights,
                 "insights_summary": result.summary,
                 "recommendations": result.recommendations,
+                "ml_analysis": {
+                    "models_available": ml_result.get("models_available", {}),
+                    "model_statuses": ml_result.get("model_statuses", []),
+                    "total_findings": ml_result.get("total_findings", 0),
+                },
                 "ai_analysis": {
                     "mode": "agentic" if use_agentic else "standard",
                     "ai_powered": (agentic_result is not None) if use_agentic else (ai_result.get("ai_powered", False) if ai_result else False),
