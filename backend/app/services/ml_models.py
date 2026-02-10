@@ -32,8 +32,13 @@ except ImportError:
     HAS_XGBOOST = False
     logger.info("xgboost not installed — XGBoost detector will be unavailable")
 
-# TensorFlow is imported lazily inside CNNAutoencoderDetector to avoid slow startup
-HAS_TF = False
+try:
+    import torch
+    import torch.nn as nn
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+    logger.info("torch not installed — CNN autoencoder detector will be unavailable")
 
 from ..core.config import settings
 
@@ -226,6 +231,27 @@ class XGBoostAnomalyDetector:
 # 1D-CNN Autoencoder Detector
 # ═══════════════════════════════════════════════════════════════════
 
+class _Autoencoder(nn.Module):
+    """Feedforward autoencoder matching the saved state_dict layout."""
+
+    def __init__(self, n_features: int) -> None:
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(n_features, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64, 32),
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(32, 64),
+            nn.ReLU(),
+            nn.Linear(64, n_features),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.decoder(self.encoder(x))
+
+
 class CNNAutoencoderDetector:
     name = "1D-CNN Autoencoder"
 
@@ -235,7 +261,11 @@ class CNNAutoencoderDetector:
         self.scaler = None
         self.metadata: Dict[str, Any] = {}
 
-        model_path = MODELS_DIR / "cnn_autoencoder.keras"
+        if not HAS_TORCH:
+            logger.warning("torch not installed — CNN autoencoder detector unavailable")
+            return
+
+        model_path = MODELS_DIR / "cnn_autoencoder.pt"
         scaler_path = MODELS_DIR / "cnn_scaler.joblib"
         meta_path = MODELS_DIR / "cnn_metadata.json"
 
@@ -244,39 +274,25 @@ class CNNAutoencoderDetector:
             return
 
         try:
-            self._load_tf_model(model_path)
-            self.scaler = joblib.load(scaler_path) if scaler_path.exists() else None
             self.metadata = _load_json(meta_path) or {}
+            n_features = self.metadata.get("training_info", {}).get("n_features", 17)
+            self.model = _Autoencoder(n_features)
+            state_dict = torch.load(str(model_path), map_location="cpu", weights_only=True)
+            self.model.load_state_dict(state_dict)
+            self.model.eval()
+            self.scaler = joblib.load(scaler_path) if scaler_path.exists() else None
             self.available = True
-            logger.info("CNN autoencoder loaded (window_size=%s, threshold=%s)",
-                        self.metadata.get("window_size", 16),
+            logger.info("CNN autoencoder loaded (features=%s, threshold=%s)",
+                        n_features,
                         self.metadata.get("anomaly_threshold"))
         except Exception as e:
             logger.warning("Failed to load CNN autoencoder: %s", e)
-
-    def _load_tf_model(self, path: Path) -> None:
-        global HAS_TF
-        try:
-            import tensorflow as tf
-            HAS_TF = True
-            self.model = tf.keras.models.load_model(str(path))
-        except ImportError:
-            logger.warning("tensorflow not installed — CNN detector unavailable")
-            raise
-        except Exception:
-            raise
 
     def detect(self, df: pd.DataFrame) -> List[Dict]:
         if not self.available or self.model is None:
             return []
 
-        try:
-            import tensorflow as tf
-        except ImportError:
-            return []
-
         feature_names = self.metadata.get("feature_names", [])
-        window_size = self.metadata.get("window_size", 16)
         threshold = self.metadata.get("anomaly_threshold", 0.042)
 
         numeric_df = df.select_dtypes(include=["number"])
@@ -302,38 +318,21 @@ class CNNAutoencoderDetector:
         else:
             X_scaled = X
 
-        values = X_scaled.values
-
-        if len(values) < window_size:
-            logger.warning("CNN: not enough rows (%d) for window size %d", len(values), window_size)
-            return []
-
-        # Create sliding windows
-        windows = []
-        for i in range(len(values) - window_size + 1):
-            windows.append(values[i:i + window_size])
-        windows = np.array(windows)
-
-        # Run reconstruction
+        # Run reconstruction (per-row autoencoder)
         try:
-            reconstructions = self.model.predict(windows, verbose=0)
-            mse_per_window = np.mean((windows - reconstructions) ** 2, axis=(1, 2))
+            input_tensor = torch.tensor(X_scaled.values, dtype=torch.float32)
+            with torch.no_grad():
+                reconstructed = self.model(input_tensor).numpy()
+            mse_per_row = np.mean((X_scaled.values - reconstructed) ** 2, axis=1)
         except Exception as e:
             logger.error("CNN prediction failed: %s", e)
             return []
-        finally:
-            try:
-                tf.keras.backend.clear_session()
-            except Exception:
-                pass
 
         anomalies: List[Dict] = []
-        for i, mse in enumerate(mse_per_window):
+        for i, mse in enumerate(mse_per_row):
             if mse >= threshold:
-                # Per-feature reconstruction error for the anomalous window
-                feature_errors = np.mean(
-                    (windows[i] - reconstructions[i]) ** 2, axis=0
-                )
+                # Per-feature reconstruction error
+                feature_errors = (X_scaled.values[i] - reconstructed[i]) ** 2
                 top_idx = np.argsort(feature_errors)[-3:][::-1]
                 top_features = [available_features[j] for j in top_idx]
 
@@ -343,10 +342,10 @@ class CNNAutoencoderDetector:
 
                 anomalies.append(_build_anomaly(
                     anomaly_type="ml_cnn_autoencoder",
-                    title=f"CNN autoencoder anomaly at window {i} (rows {i}-{i + window_size - 1})",
+                    title=f"CNN autoencoder anomaly at row {i}",
                     description=(
-                        f"1D-CNN autoencoder reconstruction error {mse:.4f} exceeds "
-                        f"threshold {threshold} at rows {i}-{i + window_size - 1}. "
+                        f"Autoencoder reconstruction error {mse:.4f} exceeds "
+                        f"threshold {threshold} at row {i}. "
                         f"Top contributing features: {', '.join(top_features)}"
                     ),
                     severity=severity,
@@ -357,8 +356,6 @@ class CNNAutoencoderDetector:
                     model_metadata={
                         "reconstruction_error": float(mse),
                         "threshold": threshold,
-                        "window_start": i,
-                        "window_end": i + window_size - 1,
                         "top_features": top_features,
                         "feature_errors": {
                             available_features[j]: float(feature_errors[j])

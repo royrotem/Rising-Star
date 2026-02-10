@@ -12,7 +12,7 @@ backend/models/
   xgboost_anomaly.json        # XGBoost model (native JSON format)
   xgboost_scaler.joblib       # StandardScaler for XGBoost
   xgboost_metadata.json       # Feature names, threshold, training info
-  cnn_autoencoder.keras        # Keras v3 saved model
+  cnn_autoencoder.pt           # PyTorch autoencoder state_dict
   cnn_scaler.joblib            # StandardScaler for CNN
   cnn_metadata.json            # Window size, feature names, threshold
   logreg_model.joblib          # LogReg sklearn model
@@ -111,7 +111,7 @@ Check model availability at startup via the backend logs:
 
 ```
 INFO  XGBoost detector loaded (features=12, threshold=0.042)
-WARN  CNN autoencoder model not found at /app/models/cnn_autoencoder.keras — skipping
+WARN  CNN autoencoder model not found at /app/models/cnn_autoencoder.pt — skipping
 INFO  Logistic Regression detector loaded (features=12, threshold=0.7)
 ```
 
@@ -120,7 +120,7 @@ INFO  Logistic Regression detector loaded (features=12, threshold=0.7)
 ## Adding a New Model
 
 1. Train the model externally and export:
-   - Model file in the appropriate format (`.json`, `.keras`, `.joblib`)
+   - Model file in the appropriate format (`.json`, `.pt`, `.joblib`)
    - A fitted `StandardScaler` saved with `joblib.dump()`
    - A `*_metadata.json` with feature names and threshold
 
