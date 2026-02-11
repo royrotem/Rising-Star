@@ -1,0 +1,27 @@
+{
+  "feature_names": [
+    "DesRoll",
+    "Roll",
+    "DesPitch",
+    "Pitch",
+    "DesYaw",
+    "Yaw",
+    "ErrRP",
+    "ErrYaw",
+    "MagX",
+    "MagY",
+    "MagZ",
+    "abGyrX",
+    "abGyrY",
+    "abGyrZ",
+    "abAccX",
+    "abAccY",
+    "abAccZ"
+  ],
+  "anomaly_threshold": 0.09045226130653267,
+  "training_info": {
+    "n_samples": 7351,
+    "n_features": 17,
+    "trained_at": "2026-02-10T21:37:20+02:00"
+  }
+}
