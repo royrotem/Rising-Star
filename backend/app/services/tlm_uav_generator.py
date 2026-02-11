@@ -1,363 +1,339 @@
 """
-TLM-UAV Demo Data Generator for UAIE
+TLM-UAV Demo Data Loader for UAIE
 
-Generates realistic UAV (Unmanned Aerial Vehicle) telemetry data modeled after
-the TLM:UAV Anomaly Detection Dataset (Kaggle: luyucwnu/tlmuav-anomaly-detection-datasets).
+Loads REAL UAV telemetry data from the TLM:UAV Anomaly Detection Dataset
+(Kaggle: luyucwnu/tlmuav-anomaly-detection-datasets).
 
-The dataset simulates ArduPilot SITL flight logs across four sensor groups:
-  - GPS: position, speed, satellite count
-  - IMU: accelerometer and gyroscope readings
-  - RATE: desired vs achieved attitude rates (roll, pitch, yaw)
-  - VIBE: processed acceleration vibration levels
+The dataset contains ArduPilot SITL flight logs with four fault types
+injected using the Time Line Modeling (TLM) method:
+  1. GPS fault (label=1)
+  2. Accelerometer fault (label=2)
+  3. Engine fault (label=3)
+  4. RC System fault (label=4)
+  0. Normal (label=0)
 
-Four fault types are injected following the Time Line Modeling (TLM) method:
-  1. GPS fault     – position drift / satellite loss
-  2. Accelerometer fault – IMU bias and noise spike
-  3. Engine fault  – thrust loss, altitude drop, vibration surge
-  4. RC System fault – control input freeze / erratic commands
+The Fusion_Data.csv merges ATT, MAG, and IMU sensor groups into a single
+18-feature dataset with 12,253 labeled records.
 
 Reference:
   Yang et al., "Acquisition and Processing of UAV Fault Data Based on
   Time Line Modeling Method", Applied Sciences 13(7):4301, 2023.
 """
 
-import math
-import random
+import csv
+import io
+import logging
+import os
+import zipfile
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+logger = logging.getLogger(__name__)
 
-# ── Fault window definitions (record index ranges) ──────────────────────
-# Each fault is anchored at a point and stretched into a window, per TLM.
-FAULT_WINDOWS = {
-    "gps_fault":          (150, 200),
-    "accelerometer_fault": (350, 410),
-    "engine_fault":        (550, 620),
-    "rc_system_fault":     (750, 820),
+# Path to the bundled Kaggle dataset
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_ARCHIVE_PATH = _DATA_DIR / "tlmuav_kaggle.zip"
+
+# Label mapping from integer to fault name
+LABEL_MAP = {
+    0: "normal",
+    1: "gps_fault",
+    2: "accelerometer_fault",
+    3: "engine_fault",
+    4: "rc_system_fault",
 }
 
+# In-memory cache so we only parse the zip once per process
+_cache: Dict[str, Any] = {}
 
-def generate_tlm_uav_data(
-    num_records: int = 1000,
-    include_anomalies: bool = True,
-) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+
+def _load_csv_from_zip(zip_path: Path, csv_inner_path: str) -> List[Dict[str, Any]]:
+    """Read a CSV file from inside a zip archive and return rows as dicts."""
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        with zf.open(csv_inner_path) as f:
+            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8"))
+            return [row for row in reader]
+
+
+def _load_kaggle_data() -> Tuple[List[Dict[str, Any]], List[int]]:
     """
-    Generate synthetic UAV telemetry data with TLM-style fault injection.
+    Load real data from the Kaggle archive.
 
     Returns:
-        Tuple of (records, metadata)
+        Tuple of (records_without_labels, ground_truth_labels)
+        - records: list of dicts with sensor fields only (NO labels)
+        - ground_truth: parallel list of integer labels (0-4)
     """
-    random.seed(42)
+    if "records" in _cache and "ground_truth" in _cache:
+        return _cache["records"], _cache["ground_truth"]
 
-    base_time = datetime.now() - timedelta(seconds=num_records * 0.1)
+    if not _ARCHIVE_PATH.exists():
+        raise FileNotFoundError(
+            f"Kaggle dataset not found at {_ARCHIVE_PATH}. "
+            "Please place tlmuav_kaggle.zip in backend/app/data/"
+        )
+
+    logger.info("Loading TLM-UAV Kaggle dataset from %s", _ARCHIVE_PATH)
+
+    # ── Load Fusion_Data.csv (merged multi-sensor dataset) ──────────
+    fusion_rows = _load_csv_from_zip(_ARCHIVE_PATH, "dataset/Fusion_Data.csv")
+
+    # ── Load GPS data for position/speed/satellites ─────────────────
+    gps_rows = _load_csv_from_zip(_ARCHIVE_PATH, "dataset/GPS/ALL_FAIL_LOG_GPS_0.csv")
+
+    # ── Load RATE data for attitude rate controller ─────────────────
+    rate_rows = _load_csv_from_zip(_ARCHIVE_PATH, "dataset/RATE/ALL_FAIL_LOG_RATE.csv")
+
+    # ── Load VIBE data for vibration monitoring ─────────────────────
+    vibe_rows = _load_csv_from_zip(_ARCHIVE_PATH, "dataset/VIBE/ALL_FAIL_LOG_VIBE_0_Random.csv")
+
+    # ── Load BARO data ──────────────────────────────────────────────
+    baro_rows = _load_csv_from_zip(_ARCHIVE_PATH, "dataset/BARO/ALL_FAIL_LOG_BARO.csv")
+
+    # ── Load BAT data ───────────────────────────────────────────────
+    bat_rows = _load_csv_from_zip(_ARCHIVE_PATH, "dataset/BAT/ALL_FAIL_LOG_BAT_0.csv")
+
+    # ── Load MAG data ───────────────────────────────────────────────
+    mag_rows = _load_csv_from_zip(_ARCHIVE_PATH, "dataset/MAG/ALL_FAIL_LOG_MAG_0.csv")
+
+    # Build records from Fusion_Data (primary source — richest merged data)
     records: List[Dict[str, Any]] = []
+    ground_truth: List[int] = []
 
-    # Flight plan: 4 waypoints forming a rectangle at ~50 m altitude
-    waypoints = [
-        (35.6812, 139.7671),  # Start / WP1
-        (35.6820, 139.7671),  # WP2 – north
-        (35.6820, 139.7681),  # WP3 – north-east
-        (35.6812, 139.7681),  # WP4 – east
-    ]
+    base_time = datetime.now() - timedelta(seconds=len(fusion_rows) * 0.1)
 
-    for i in range(num_records):
-        t = i / num_records
-        timestamp = base_time + timedelta(seconds=i * 0.1)
+    for idx, row in enumerate(fusion_rows):
+        ts = base_time + timedelta(seconds=idx * 0.1)
 
-        # ── Flight trajectory (smooth waypoint interpolation) ────────
-        segment = int(t * 4) % 4
-        seg_t = (t * 4) % 1.0
-        wp_a = waypoints[segment]
-        wp_b = waypoints[(segment + 1) % 4]
-        lat = wp_a[0] + (wp_b[0] - wp_a[0]) * seg_t
-        lon = wp_a[1] + (wp_b[1] - wp_a[1]) * seg_t
-
-        # Altitude: climb to 50m, hold, descend at end
-        if t < 0.05:
-            alt = 50.0 * (t / 0.05)
-        elif t > 0.95:
-            alt = 50.0 * ((1.0 - t) / 0.05)
-        else:
-            alt = 50.0
-
-        # Ground speed varies with phase
-        base_speed = 5.0 + 2.0 * math.sin(t * math.pi * 8)
-
-        # ── GPS fields ───────────────────────────────────────────────
-        gps_lat = round(lat + random.gauss(0, 0.000002), 7)
-        gps_lon = round(lon + random.gauss(0, 0.000002), 7)
-        gps_alt = round(alt + random.gauss(0, 0.15), 2)
-        gps_speed = round(max(0, base_speed + random.gauss(0, 0.2)), 2)
-        gps_num_sats = random.randint(10, 14)
-        gps_hdop = round(0.8 + random.gauss(0, 0.05), 2)
-
-        # ── IMU fields (accelerometer + gyroscope) ───────────────────
-        # Gravity-compensated body-frame accelerations (m/s^2)
-        imu_acc_x = round(random.gauss(0.0, 0.08), 4)
-        imu_acc_y = round(random.gauss(0.0, 0.08), 4)
-        imu_acc_z = round(-9.81 + random.gauss(0, 0.1), 4)
-        # Gyroscope (rad/s)
-        imu_gyro_x = round(random.gauss(0.0, 0.005), 5)
-        imu_gyro_y = round(random.gauss(0.0, 0.005), 5)
-        imu_gyro_z = round(random.gauss(0.0, 0.003), 5)
-
-        # ── RATE fields (desired vs achieved attitude rates, deg/s) ──
-        # Smooth desired rates from flight plan
-        des_roll_rate = round(2.0 * math.sin(t * math.pi * 12) + random.gauss(0, 0.3), 3)
-        des_pitch_rate = round(1.5 * math.cos(t * math.pi * 10) + random.gauss(0, 0.3), 3)
-        des_yaw_rate = round(0.5 * math.sin(t * math.pi * 4) + random.gauss(0, 0.2), 3)
-        # Achieved tracks desired with small lag/error
-        ach_roll_rate = round(des_roll_rate + random.gauss(0, 0.15), 3)
-        ach_pitch_rate = round(des_pitch_rate + random.gauss(0, 0.15), 3)
-        ach_yaw_rate = round(des_yaw_rate + random.gauss(0, 0.1), 3)
-
-        # ── VIBE fields (vibration levels, m/s^2) ────────────────────
-        vibe_x = round(abs(random.gauss(0.5, 0.15)), 3)
-        vibe_y = round(abs(random.gauss(0.5, 0.15)), 3)
-        vibe_z = round(abs(random.gauss(0.8, 0.2)), 3)
-        vibe_clipping_0 = 0
-        vibe_clipping_1 = 0
-        vibe_clipping_2 = 0
-
-        # ── Throttle / engine ────────────────────────────────────────
-        throttle_pct = round(min(100, max(0, 55 + 10 * math.sin(t * math.pi * 6) + random.gauss(0, 2))), 1)
-
-        # Label: 0 = normal
-        fault_label = 0
-        fault_type = "normal"
+        label = int(float(row.get("labels", "0")))
+        ground_truth.append(label)
 
         record = {
-            "timestamp": timestamp.isoformat(),
-            "flight_mode": "AUTO",
-            # GPS
-            "gps_lat": gps_lat,
-            "gps_lon": gps_lon,
-            "gps_alt_m": gps_alt,
-            "gps_speed_m_s": gps_speed,
-            "gps_num_sats": gps_num_sats,
-            "gps_hdop": gps_hdop,
-            # IMU
-            "imu_acc_x_m_s2": imu_acc_x,
-            "imu_acc_y_m_s2": imu_acc_y,
-            "imu_acc_z_m_s2": imu_acc_z,
-            "imu_gyro_x_rad_s": imu_gyro_x,
-            "imu_gyro_y_rad_s": imu_gyro_y,
-            "imu_gyro_z_rad_s": imu_gyro_z,
-            # RATE
-            "rate_des_roll_deg_s": des_roll_rate,
-            "rate_des_pitch_deg_s": des_pitch_rate,
-            "rate_des_yaw_deg_s": des_yaw_rate,
-            "rate_ach_roll_deg_s": ach_roll_rate,
-            "rate_ach_pitch_deg_s": ach_pitch_rate,
-            "rate_ach_yaw_deg_s": ach_yaw_rate,
-            # VIBE
-            "vibe_x_m_s2": vibe_x,
-            "vibe_y_m_s2": vibe_y,
-            "vibe_z_m_s2": vibe_z,
-            "vibe_clipping_0": vibe_clipping_0,
-            "vibe_clipping_1": vibe_clipping_1,
-            "vibe_clipping_2": vibe_clipping_2,
-            # Engine
-            "throttle_pct": throttle_pct,
-            # Labels
-            "fault_label": fault_label,
-            "fault_type": fault_type,
+            "timestamp": ts.isoformat(),
+            "row_index": idx,
+            # ATT — Attitude (from Fusion)
+            "att_DesRoll": float(row.get("DesRoll", 0)),
+            "att_Roll": float(row.get("Roll", 0)),
+            "att_DesPitch": float(row.get("DesPitch", 0)),
+            "att_Pitch": float(row.get("Pitch", 0)),
+            "att_DesYaw": float(row.get("DesYaw", 0)),
+            "att_Yaw": float(row.get("Yaw", 0)),
+            "att_ErrRP": float(row.get("ErrRP", 0)),
+            "att_ErrYaw": float(row.get("ErrYaw", 0)),
+            # MAG — Magnetometer (from Fusion)
+            "mag_X": float(row.get("MagX", 0)),
+            "mag_Y": float(row.get("MagY", 0)),
+            "mag_Z": float(row.get("MagZ", 0)),
+            # IMU — Inertial Measurement Unit (from Fusion)
+            "imu_GyrX": float(row.get("abGyrX", 0)),
+            "imu_GyrY": float(row.get("abGyrY", 0)),
+            "imu_GyrZ": float(row.get("abGyrZ", 0)),
+            "imu_AccX": float(row.get("abAccX", 0)),
+            "imu_AccY": float(row.get("abAccY", 0)),
+            "imu_AccZ": float(row.get("abAccZ", 0)),
         }
 
-        if include_anomalies:
-            record = _inject_faults(record, i)
+        # NOTE: We intentionally do NOT include "labels" in the record.
+        # Ground truth is stored separately for post-analysis comparison.
 
         records.append(record)
 
-    metadata = {
-        "system_name": "UAV Copter - TLM Flight Test",
-        "system_type": "uav",
-        "description": (
-            "Simulated multi-rotor UAV telemetry data based on ArduPilot SITL, "
-            "featuring GPS, IMU, RATE, and VIBE sensor groups with four injected "
-            "fault types following the Time Line Modeling (TLM) method."
-        ),
-        "confidence": 0.95,
-        "record_count": num_records,
-        "field_count": len(records[0]) if records else 0,
-        "demo_anomalies_injected": include_anomalies,
-        "anomaly_types": [
-            "gps_fault",
-            "accelerometer_fault",
-            "engine_fault",
-            "rc_system_fault",
-        ] if include_anomalies else [],
-        "dataset_reference": (
-            "TLM:UAV Anomaly Detection Datasets — "
-            "https://www.kaggle.com/datasets/luyucwnu/tlmuav-anomaly-detection-datasets"
-        ),
+    logger.info(
+        "Loaded %d records from Fusion_Data.csv (labels: %s)",
+        len(records),
+        {LABEL_MAP.get(k, k): v for k, v in sorted(
+            {l: ground_truth.count(l) for l in set(ground_truth)}.items()
+        )},
+    )
+
+    # ── Also prepare per-sensor-group data for multi-file view ──────
+    # GPS records (smaller: 2450 rows)
+    gps_records: List[Dict[str, Any]] = []
+    gps_ground_truth: List[int] = []
+    for idx, row in enumerate(gps_rows):
+        label = int(float(row.get("labels", "0")))
+        gps_ground_truth.append(label)
+        ts = base_time + timedelta(seconds=idx * 0.5)
+        gps_records.append({
+            "timestamp": ts.isoformat(),
+            "row_index": idx,
+            "gps_Status": float(row.get("Status", 0)),
+            "gps_NSats": float(row.get("NSats", 0)),
+            "gps_HDop": float(row.get("HDop", 0)),
+            "gps_Lat": float(row.get("Lat", 0)),
+            "gps_Lng": float(row.get("Lng", 0)),
+            "gps_Alt": float(row.get("Alt", 0)),
+            "gps_Spd": float(row.get("Spd", 0)),
+            "gps_GCrs": float(row.get("GCrs", 0)),
+            "gps_VZ": float(row.get("VZ", 0)),
+            "gps_Yaw": float(row.get("Yaw", 0)),
+            "gps_U": float(row.get("U", 0)),
+        })
+
+    # RATE records (4900 rows)
+    rate_records: List[Dict[str, Any]] = []
+    rate_ground_truth: List[int] = []
+    for idx, row in enumerate(rate_rows):
+        label = int(float(row.get("labels", "0")))
+        rate_ground_truth.append(label)
+        ts = base_time + timedelta(seconds=idx * 0.25)
+        rate_records.append({
+            "timestamp": ts.isoformat(),
+            "row_index": idx,
+            "rate_RDes": float(row.get("RDes", 0)),
+            "rate_R": float(row.get("R", 0)),
+            "rate_Rout": float(row.get("Rout", 0)),
+            "rate_PDes": float(row.get("PDes", 0)),
+            "rate_P": float(row.get("P", 0)),
+            "rate_POut": float(row.get("POut", 0)),
+            "rate_YDes": float(row.get("YDes", 0)),
+            "rate_Y": float(row.get("Y", 0)),
+            "rate_YOut": float(row.get("YOut", 0)),
+            "rate_ADes": float(row.get("ADes", 0)),
+            "rate_A": float(row.get("A", 0)),
+            "rate_AOut": float(row.get("AOut", 0)),
+        })
+
+    # Cache everything
+    _cache["records"] = records
+    _cache["ground_truth"] = ground_truth
+    _cache["gps_records"] = gps_records
+    _cache["gps_ground_truth"] = gps_ground_truth
+    _cache["rate_records"] = rate_records
+    _cache["rate_ground_truth"] = rate_ground_truth
+    _cache["sensor_file_stats"] = {
+        "fusion": {"rows": len(fusion_rows), "cols": len(fusion_rows[0]) if fusion_rows else 0},
+        "gps": {"rows": len(gps_rows), "cols": len(gps_rows[0]) if gps_rows else 0},
+        "rate": {"rows": len(rate_rows), "cols": len(rate_rows[0]) if rate_rows else 0},
+        "vibe": {"rows": len(vibe_rows), "cols": len(vibe_rows[0]) if vibe_rows else 0},
+        "baro": {"rows": len(baro_rows), "cols": len(baro_rows[0]) if baro_rows else 0},
+        "bat": {"rows": len(bat_rows), "cols": len(bat_rows[0]) if bat_rows else 0},
+        "mag": {"rows": len(mag_rows), "cols": len(mag_rows[0]) if mag_rows else 0},
     }
 
-    return records, metadata
+    return records, ground_truth
 
 
-def _inject_faults(record: Dict[str, Any], index: int) -> Dict[str, Any]:
-    """Inject TLM-style faults into a single record."""
+def get_ground_truth(system_id: str = None) -> Dict[str, Any]:
+    """
+    Return ground-truth labels for the loaded Kaggle dataset.
 
-    # ─────────────────────────────────────────────────────────────────────
-    # FAULT 1: GPS fault — satellite loss + position drift
-    # Triggers: Statistical Analyst, Cross-Sensor Sync, Domain Expert
-    # ─────────────────────────────────────────────────────────────────────
-    start, end = FAULT_WINDOWS["gps_fault"]
-    if start <= index < end:
-        progress = (index - start) / (end - start)
-        record["gps_num_sats"] = max(2, int(14 - 12 * progress))
-        record["gps_hdop"] = round(0.8 + 8.0 * progress, 2)
-        # Position drifts increasingly
-        record["gps_lat"] += random.gauss(0, 0.0001 * progress)
-        record["gps_lon"] += random.gauss(0, 0.0001 * progress)
-        record["gps_alt_m"] += random.gauss(0, 3.0 * progress)
-        record["gps_speed_m_s"] = round(abs(record["gps_speed_m_s"] + random.gauss(0, 2.0 * progress)), 2)
-        record["fault_label"] = 1
-        record["fault_type"] = "gps_fault"
+    Returns dict with:
+      - labels: list of int (0-4) parallel to the records
+      - label_map: mapping from int to fault name
+      - distribution: count per label
+    """
+    _, ground_truth = _load_kaggle_data()
+    dist = {}
+    for lbl in ground_truth:
+        name = LABEL_MAP.get(lbl, f"unknown_{lbl}")
+        dist[name] = dist.get(name, 0) + 1
 
-    # ─────────────────────────────────────────────────────────────────────
-    # FAULT 2: Accelerometer fault — bias offset + noise amplification
-    # Triggers: Stagnation Sentinel, Micro-Drift Tracker, Safety Auditor
-    # ─────────────────────────────────────────────────────────────────────
-    start, end = FAULT_WINDOWS["accelerometer_fault"]
-    if start <= index < end:
-        progress = (index - start) / (end - start)
-        # Growing bias on X and Y axes
-        bias = 0.5 * progress
-        record["imu_acc_x_m_s2"] = round(record["imu_acc_x_m_s2"] + bias + random.gauss(0, 0.3 * progress), 4)
-        record["imu_acc_y_m_s2"] = round(record["imu_acc_y_m_s2"] - bias + random.gauss(0, 0.3 * progress), 4)
-        # Z-axis noise increases
-        record["imu_acc_z_m_s2"] = round(record["imu_acc_z_m_s2"] + random.gauss(0, 0.8 * progress), 4)
-        # Gyro becomes noisy too (cross-axis coupling)
-        record["imu_gyro_x_rad_s"] = round(record["imu_gyro_x_rad_s"] + random.gauss(0, 0.03 * progress), 5)
-        record["imu_gyro_y_rad_s"] = round(record["imu_gyro_y_rad_s"] + random.gauss(0, 0.03 * progress), 5)
-        record["fault_label"] = 2
-        record["fault_type"] = "accelerometer_fault"
-
-    # ─────────────────────────────────────────────────────────────────────
-    # FAULT 3: Engine fault — thrust degradation, altitude drop, vibration
-    # Triggers: Harmonic Distortion, Efficiency Analyst, Cross-Sensor Sync
-    # ─────────────────────────────────────────────────────────────────────
-    start, end = FAULT_WINDOWS["engine_fault"]
-    if start <= index < end:
-        progress = (index - start) / (end - start)
-        # Throttle commands rise but altitude drops (engine not responding)
-        record["throttle_pct"] = round(min(100, record["throttle_pct"] + 30 * progress), 1)
-        record["gps_alt_m"] = round(record["gps_alt_m"] - 15 * progress + random.gauss(0, 0.5), 2)
-        # Vibration spikes from mechanical failure
-        record["vibe_x_m_s2"] = round(record["vibe_x_m_s2"] + 3.0 * progress + random.gauss(0, 0.5), 3)
-        record["vibe_y_m_s2"] = round(record["vibe_y_m_s2"] + 3.0 * progress + random.gauss(0, 0.5), 3)
-        record["vibe_z_m_s2"] = round(record["vibe_z_m_s2"] + 5.0 * progress + random.gauss(0, 0.8), 3)
-        record["vibe_clipping_0"] = random.randint(0, int(20 * progress))
-        record["vibe_clipping_1"] = random.randint(0, int(15 * progress))
-        record["vibe_clipping_2"] = random.randint(0, int(25 * progress))
-        # Rate tracking degrades
-        record["rate_ach_roll_deg_s"] += random.gauss(0, 2.0 * progress)
-        record["rate_ach_pitch_deg_s"] += random.gauss(0, 2.0 * progress)
-        record["fault_label"] = 3
-        record["fault_type"] = "engine_fault"
-
-    # ─────────────────────────────────────────────────────────────────────
-    # FAULT 4: RC System fault — frozen / erratic control inputs
-    # Triggers: Stagnation Sentinel, Logic State Conflict, Human-Context
-    # ─────────────────────────────────────────────────────────────────────
-    start, end = FAULT_WINDOWS["rc_system_fault"]
-    if start <= index < end:
-        progress = (index - start) / (end - start)
-        if progress < 0.5:
-            # Phase A: Control inputs freeze (stagnation)
-            record["rate_des_roll_deg_s"] = 0.0
-            record["rate_des_pitch_deg_s"] = 0.0
-            record["rate_des_yaw_deg_s"] = 0.0
-        else:
-            # Phase B: Erratic commands
-            record["rate_des_roll_deg_s"] = round(random.uniform(-15, 15), 3)
-            record["rate_des_pitch_deg_s"] = round(random.uniform(-15, 15), 3)
-            record["rate_des_yaw_deg_s"] = round(random.uniform(-10, 10), 3)
-        # Achieved rates diverge from desired
-        record["rate_ach_roll_deg_s"] = round(record["rate_des_roll_deg_s"] * 0.3 + random.gauss(0, 1.5), 3)
-        record["rate_ach_pitch_deg_s"] = round(record["rate_des_pitch_deg_s"] * 0.3 + random.gauss(0, 1.5), 3)
-        record["rate_ach_yaw_deg_s"] = round(record["rate_des_yaw_deg_s"] * 0.3 + random.gauss(0, 1.0), 3)
-        record["flight_mode"] = "STABILIZE"  # Failsafe mode switch
-        record["fault_label"] = 4
-        record["fault_type"] = "rc_system_fault"
-
-    return record
+    return {
+        "labels": ground_truth,
+        "label_map": LABEL_MAP,
+        "distribution": dist,
+        "total_records": len(ground_truth),
+        "total_anomalous": sum(1 for l in ground_truth if l != 0),
+        "total_normal": sum(1 for l in ground_truth if l == 0),
+    }
 
 
 def generate_tlm_uav_description_file() -> str:
     """Generate a documentation markdown string for the TLM-UAV demo system."""
-    return """# TLM-UAV Telemetry System Documentation
+    return """# TLM-UAV Telemetry System — Real Kaggle Dataset
 
 ## System Overview
-Multi-rotor UAV (quadcopter) telemetry data collected from an ArduPilot
-Software-In-The-Loop (SITL) simulation environment. The flight follows a
-rectangular waypoint mission at approximately 50 m altitude.
+Multi-rotor UAV (quadcopter) telemetry data from the TLM:UAV Anomaly Detection
+Dataset (Kaggle). Collected via ArduPilot Software-In-The-Loop (SITL) simulation
+with real fault injection using the Time Line Modeling (TLM) method.
 
-## Sensor Groups
+**This is REAL data from academic research, not synthetic.**
 
-### GPS Information
-- **gps_lat / gps_lon**: WGS-84 latitude and longitude (degrees)
-- **gps_alt_m**: GPS-reported altitude above home (m). Normal: 45-55 m during cruise.
-- **gps_speed_m_s**: Ground speed (m/s). Normal cruise: 3-8 m/s.
-- **gps_num_sats**: Number of visible satellites. Healthy: >= 8. Critical: < 5.
-- **gps_hdop**: Horizontal dilution of precision. Good: < 1.5. Poor: > 4.0.
+## Data Source
+- **Dataset**: TLM:UAV Anomaly Detection Datasets
+- **Source**: https://www.kaggle.com/datasets/luyucwnu/tlmuav-anomaly-detection-datasets
+- **Paper**: Yang et al., "Acquisition and Processing of UAV Fault Data Based on
+  Time Line Modeling Method", Applied Sciences 13(7):4301, 2023.
+- **Primary file**: Fusion_Data.csv (12,253 records, 18 sensor features + label)
 
-### IMU (Inertial Measurement Unit)
-- **imu_acc_{x,y,z}_m_s2**: Body-frame accelerometer (m/s^2). Z should be ~-9.81 in hover.
-- **imu_gyro_{x,y,z}_rad_s**: Body-frame gyroscope (rad/s). Should be near zero in stable hover.
+## Sensor Groups (Fusion_Data.csv)
 
-### RATE (Attitude Rate Controller)
-- **rate_des_{roll,pitch,yaw}_deg_s**: Desired attitude rates from the flight controller (deg/s).
-- **rate_ach_{roll,pitch,yaw}_deg_s**: Achieved attitude rates measured by sensors (deg/s).
-- Divergence between desired and achieved indicates control system issues.
+### ATT — Attitude
+- **att_DesRoll / att_Roll**: Desired vs actual roll angle (deg)
+- **att_DesPitch / att_Pitch**: Desired vs actual pitch angle (deg)
+- **att_DesYaw / att_Yaw**: Desired vs actual yaw heading (deg)
+- **att_ErrRP**: Roll/Pitch error magnitude
+- **att_ErrYaw**: Yaw error magnitude
 
-### VIBE (Vibration Monitoring)
-- **vibe_{x,y,z}_m_s2**: RMS vibration acceleration (m/s^2). Healthy: < 3.0. Critical: > 6.0.
-- **vibe_clipping_{0,1,2}**: Accelerometer clipping counts per axis. Should be 0 in normal flight.
+### MAG — Magnetometer
+- **mag_X / mag_Y / mag_Z**: 3-axis magnetic field readings
 
-### Engine / Throttle
-- **throttle_pct**: Throttle output (0-100%). Hover is typically 45-65%.
+### IMU — Inertial Measurement Unit
+- **imu_GyrX / imu_GyrY / imu_GyrZ**: Gyroscope rates (rad/s)
+- **imu_AccX / imu_AccY / imu_AccZ**: Accelerometer readings (m/s^2)
+  - Z-axis should be ~-9.81 in stable hover
 
-### Flight Status
-- **flight_mode**: AUTO (normal mission), STABILIZE (manual/failsafe).
-- **fault_label**: 0=normal, 1=GPS, 2=accelerometer, 3=engine, 4=RC system.
-- **fault_type**: Human-readable fault category.
+## Fault Types (Ground Truth Labels)
 
-## Fault Types (TLM Method)
-
-| Fault | Label | Symptoms |
+| Label | Fault | Symptoms |
 |-------|-------|----------|
-| GPS fault | 1 | Satellite loss, HDOP increase, position drift |
-| Accelerometer fault | 2 | IMU bias growth, noise amplification, gyro coupling |
-| Engine fault | 3 | Altitude drop despite high throttle, vibration surge, clipping |
-| RC System fault | 4 | Control freeze then erratic commands, mode switch to STABILIZE |
+| 0 | Normal | Nominal flight |
+| 1 | GPS fault | Position drift, satellite loss |
+| 2 | Accelerometer fault | IMU bias growth, noise amplification |
+| 3 | Engine fault | Thrust loss, altitude drop, vibration surge |
+| 4 | RC System fault | Control freeze / erratic commands |
 
-## Safety Limits
-| Parameter | Warning | Critical |
-|-----------|---------|----------|
-| GPS Satellites | 6 | 4 |
-| GPS HDOP | 3.0 | 5.0 |
-| Vibration (any axis) | 3.0 m/s^2 | 6.0 m/s^2 |
-| Altitude deviation | +/- 5 m | +/- 15 m |
-| Throttle | > 85% sustained | 100% for > 5 s |
+## Ground Truth Distribution
+- Normal (0): ~53.6% (6,567 records)
+- GPS fault (1): ~14.9% (1,823 records)
+- Accelerometer fault (2): ~15.2% (1,863 records)
+- Engine fault (3): ~11.8% (1,449 records)
+- RC System fault (4): ~4.5% (551 records)
 
-## Reference
-Yang et al., "Acquisition and Processing of UAV Fault Data Based on Time
-Line Modeling Method", Applied Sciences 13(7):4301, 2023.
-Dataset: https://www.kaggle.com/datasets/luyucwnu/tlmuav-anomaly-detection-datasets
+## Evaluation Note
+Labels are available for post-analysis comparison but are NOT provided
+to the anomaly detection system. This enables fair benchmarking of the
+UAIE platform against known ground truth.
 """
 
 
 def generate_full_tlm_uav_package() -> Dict[str, Any]:
     """
-    Generate a complete TLM-UAV demo package with data, schema, and metadata.
+    Load the real TLM-UAV Kaggle dataset and package it for the demo endpoint.
 
-    Returns a dict matching the structure expected by the demo/create endpoint.
+    Returns a dict with:
+      - records: list of dicts (NO labels — these go to the analysis engine)
+      - ground_truth: dict with labels and distribution (stored separately)
+      - metadata, discovered_fields, relationships, etc.
     """
-    records, metadata = generate_tlm_uav_data(num_records=1000, include_anomalies=True)
+    records, ground_truth_labels = _load_kaggle_data()
     description = generate_tlm_uav_description_file()
+    gt_info = get_ground_truth()
+
+    sample = records[0] if records else {}
+    sensor_fields = [k for k in sample.keys() if k not in ("timestamp", "row_index")]
+
+    metadata = {
+        "system_name": "UAV Copter - TLM Kaggle Dataset",
+        "system_type": "uav",
+        "description": (
+            "REAL UAV telemetry data from the TLM:UAV Anomaly Detection Dataset (Kaggle). "
+            "12,253 records across ATT, MAG, and IMU sensor groups with four fault types. "
+            "Ground truth labels available for post-analysis evaluation."
+        ),
+        "confidence": 0.98,
+        "record_count": len(records),
+        "field_count": len(sensor_fields) + 2,  # +timestamp +row_index
+        "demo_anomalies_injected": True,
+        "anomaly_types": ["gps_fault", "accelerometer_fault", "engine_fault", "rc_system_fault"],
+        "dataset_reference": (
+            "TLM:UAV Anomaly Detection Datasets — "
+            "https://www.kaggle.com/datasets/luyucwnu/tlmuav-anomaly-detection-datasets"
+        ),
+        "is_real_data": True,
+    }
 
     discovered_fields = [
         {
@@ -365,126 +341,207 @@ def generate_full_tlm_uav_package() -> Dict[str, Any]:
             "display_name": "Timestamp",
             "type": "datetime",
             "category": "temporal",
-            "description": "Telemetry sample timestamp (10 Hz)",
+            "description": "Telemetry sample timestamp (10 Hz, reconstructed)",
             "confidence": 0.99,
         },
         {
-            "name": "flight_mode",
-            "display_name": "Flight Mode",
-            "type": "string",
-            "category": "content",
-            "description": "ArduPilot flight mode (AUTO, STABILIZE, etc.)",
-            "confidence": 0.98,
+            "name": "row_index",
+            "display_name": "Row Index",
+            "type": "integer",
+            "category": "identifier",
+            "description": "Sequential row number from the original Kaggle CSV",
+            "confidence": 0.99,
         },
-        # ── GPS ──────────────────────────────────────────────────────
+        # ── ATT — Attitude ──────────────────────────────────────────
         {
-            "name": "gps_lat",
-            "display_name": "GPS Latitude",
+            "name": "att_DesRoll",
+            "display_name": "Desired Roll",
             "type": "float",
             "physical_unit": "deg",
             "category": "content",
-            "component": "GPS Receiver",
-            "description": "WGS-84 latitude",
-            "confidence": 0.97,
+            "component": "Attitude Controller",
+            "description": "Commanded roll angle from flight controller",
+            "confidence": 0.95,
         },
         {
-            "name": "gps_lon",
-            "display_name": "GPS Longitude",
+            "name": "att_Roll",
+            "display_name": "Actual Roll",
             "type": "float",
             "physical_unit": "deg",
             "category": "content",
-            "component": "GPS Receiver",
-            "description": "WGS-84 longitude",
-            "confidence": 0.97,
-        },
-        {
-            "name": "gps_alt_m",
-            "display_name": "GPS Altitude",
-            "type": "float",
-            "physical_unit": "m",
-            "category": "content",
-            "component": "GPS Receiver",
-            "description": "Altitude above home position",
+            "component": "Attitude Controller",
+            "description": "Measured actual roll angle",
             "engineering_context": {
-                "typical_range": {"min": 0, "max": 55},
-                "what_high_means": "UAV climbing or altitude sensor error",
-                "what_low_means": "Descending or engine/thrust loss",
+                "typical_range": {"min": -35, "max": 35},
+                "what_high_means": "Large roll angle — aggressive maneuver or loss of control",
                 "safety_critical": True,
-            },
-            "confidence": 0.96,
-        },
-        {
-            "name": "gps_speed_m_s",
-            "display_name": "Ground Speed",
-            "type": "float",
-            "physical_unit": "m/s",
-            "category": "content",
-            "component": "GPS Receiver",
-            "description": "GPS-derived ground speed",
-            "engineering_context": {
-                "typical_range": {"min": 0, "max": 10},
             },
             "confidence": 0.95,
         },
         {
-            "name": "gps_num_sats",
-            "display_name": "GPS Satellites",
-            "type": "integer",
+            "name": "att_DesPitch",
+            "display_name": "Desired Pitch",
+            "type": "float",
+            "physical_unit": "deg",
             "category": "content",
-            "component": "GPS Receiver",
-            "description": "Number of visible GPS satellites",
-            "engineering_context": {
-                "typical_range": {"min": 8, "max": 14},
-                "what_low_means": "Poor GPS fix — position unreliable",
-                "design_limit_hint": {"min": 4, "max": 20},
-                "safety_critical": True,
-            },
-            "confidence": 0.97,
+            "component": "Attitude Controller",
+            "description": "Commanded pitch angle",
+            "confidence": 0.95,
         },
         {
-            "name": "gps_hdop",
-            "display_name": "GPS HDOP",
+            "name": "att_Pitch",
+            "display_name": "Actual Pitch",
             "type": "float",
+            "physical_unit": "deg",
             "category": "content",
-            "component": "GPS Receiver",
-            "description": "Horizontal dilution of precision (lower = better)",
+            "component": "Attitude Controller",
+            "description": "Measured actual pitch angle",
             "engineering_context": {
-                "typical_range": {"min": 0.5, "max": 1.5},
-                "what_high_means": "Poor satellite geometry — position accuracy degraded",
+                "typical_range": {"min": -35, "max": 35},
+                "safety_critical": True,
+            },
+            "confidence": 0.95,
+        },
+        {
+            "name": "att_DesYaw",
+            "display_name": "Desired Yaw",
+            "type": "float",
+            "physical_unit": "deg",
+            "category": "content",
+            "component": "Attitude Controller",
+            "description": "Commanded yaw heading (0-360)",
+            "confidence": 0.94,
+        },
+        {
+            "name": "att_Yaw",
+            "display_name": "Actual Yaw",
+            "type": "float",
+            "physical_unit": "deg",
+            "category": "content",
+            "component": "Attitude Controller",
+            "description": "Measured yaw heading",
+            "confidence": 0.94,
+        },
+        {
+            "name": "att_ErrRP",
+            "display_name": "Roll/Pitch Error",
+            "type": "float",
+            "physical_unit": "deg",
+            "category": "content",
+            "component": "Attitude Controller",
+            "description": "Combined roll/pitch error magnitude",
+            "engineering_context": {
+                "typical_range": {"min": 0, "max": 0.1},
+                "what_high_means": "Attitude control is struggling — possible IMU or motor issue",
                 "safety_critical": True,
             },
             "confidence": 0.93,
         },
-        # ── IMU ──────────────────────────────────────────────────────
         {
-            "name": "imu_acc_x_m_s2",
-            "display_name": "IMU Accel X",
+            "name": "att_ErrYaw",
+            "display_name": "Yaw Error",
+            "type": "float",
+            "physical_unit": "deg",
+            "category": "content",
+            "component": "Attitude Controller",
+            "description": "Yaw error magnitude",
+            "engineering_context": {
+                "typical_range": {"min": 0, "max": 0.1},
+                "what_high_means": "Yaw tracking failure — compass interference or motor asymmetry",
+            },
+            "confidence": 0.93,
+        },
+        # ── MAG — Magnetometer ──────────────────────────────────────
+        {
+            "name": "mag_X",
+            "display_name": "Magnetometer X",
+            "type": "float",
+            "physical_unit": "mGauss",
+            "category": "content",
+            "component": "Magnetometer",
+            "description": "X-axis magnetic field reading",
+            "confidence": 0.92,
+        },
+        {
+            "name": "mag_Y",
+            "display_name": "Magnetometer Y",
+            "type": "float",
+            "physical_unit": "mGauss",
+            "category": "content",
+            "component": "Magnetometer",
+            "description": "Y-axis magnetic field reading",
+            "confidence": 0.92,
+        },
+        {
+            "name": "mag_Z",
+            "display_name": "Magnetometer Z",
+            "type": "float",
+            "physical_unit": "mGauss",
+            "category": "content",
+            "component": "Magnetometer",
+            "description": "Z-axis magnetic field reading",
+            "confidence": 0.92,
+        },
+        # ── IMU — Inertial Measurement Unit ─────────────────────────
+        {
+            "name": "imu_GyrX",
+            "display_name": "Gyroscope X",
+            "type": "float",
+            "physical_unit": "rad/s",
+            "category": "content",
+            "component": "IMU / Gyroscope",
+            "description": "Body-frame roll rate",
+            "engineering_context": {
+                "typical_range": {"min": -2, "max": 2},
+            },
+            "confidence": 0.94,
+        },
+        {
+            "name": "imu_GyrY",
+            "display_name": "Gyroscope Y",
+            "type": "float",
+            "physical_unit": "rad/s",
+            "category": "content",
+            "component": "IMU / Gyroscope",
+            "description": "Body-frame pitch rate",
+            "confidence": 0.94,
+        },
+        {
+            "name": "imu_GyrZ",
+            "display_name": "Gyroscope Z",
+            "type": "float",
+            "physical_unit": "rad/s",
+            "category": "content",
+            "component": "IMU / Gyroscope",
+            "description": "Body-frame yaw rate",
+            "confidence": 0.94,
+        },
+        {
+            "name": "imu_AccX",
+            "display_name": "Accelerometer X",
             "type": "float",
             "physical_unit": "m/s^2",
             "category": "content",
             "component": "IMU / Accelerometer",
             "description": "Body-frame X-axis acceleration",
             "engineering_context": {
-                "typical_range": {"min": -1.0, "max": 1.0},
+                "typical_range": {"min": -2, "max": 2},
             },
             "confidence": 0.94,
         },
         {
-            "name": "imu_acc_y_m_s2",
-            "display_name": "IMU Accel Y",
+            "name": "imu_AccY",
+            "display_name": "Accelerometer Y",
             "type": "float",
             "physical_unit": "m/s^2",
             "category": "content",
             "component": "IMU / Accelerometer",
             "description": "Body-frame Y-axis acceleration",
-            "engineering_context": {
-                "typical_range": {"min": -1.0, "max": 1.0},
-            },
             "confidence": 0.94,
         },
         {
-            "name": "imu_acc_z_m_s2",
-            "display_name": "IMU Accel Z",
+            "name": "imu_AccZ",
+            "display_name": "Accelerometer Z",
             "type": "float",
             "physical_unit": "m/s^2",
             "category": "content",
@@ -494,292 +551,114 @@ def generate_full_tlm_uav_package() -> Dict[str, Any]:
                 "typical_range": {"min": -10.5, "max": -9.0},
                 "what_high_means": "Upward acceleration or sensor bias",
                 "what_low_means": "Downward acceleration beyond gravity",
+                "safety_critical": True,
             },
             "confidence": 0.94,
-        },
-        {
-            "name": "imu_gyro_x_rad_s",
-            "display_name": "IMU Gyro X",
-            "type": "float",
-            "physical_unit": "rad/s",
-            "category": "content",
-            "component": "IMU / Gyroscope",
-            "description": "Body-frame roll rate",
-            "confidence": 0.93,
-        },
-        {
-            "name": "imu_gyro_y_rad_s",
-            "display_name": "IMU Gyro Y",
-            "type": "float",
-            "physical_unit": "rad/s",
-            "category": "content",
-            "component": "IMU / Gyroscope",
-            "description": "Body-frame pitch rate",
-            "confidence": 0.93,
-        },
-        {
-            "name": "imu_gyro_z_rad_s",
-            "display_name": "IMU Gyro Z",
-            "type": "float",
-            "physical_unit": "rad/s",
-            "category": "content",
-            "component": "IMU / Gyroscope",
-            "description": "Body-frame yaw rate",
-            "confidence": 0.93,
-        },
-        # ── RATE ─────────────────────────────────────────────────────
-        {
-            "name": "rate_des_roll_deg_s",
-            "display_name": "Desired Roll Rate",
-            "type": "float",
-            "physical_unit": "deg/s",
-            "category": "content",
-            "component": "Attitude Controller",
-            "description": "Commanded roll rate from flight controller",
-            "confidence": 0.92,
-        },
-        {
-            "name": "rate_des_pitch_deg_s",
-            "display_name": "Desired Pitch Rate",
-            "type": "float",
-            "physical_unit": "deg/s",
-            "category": "content",
-            "component": "Attitude Controller",
-            "description": "Commanded pitch rate from flight controller",
-            "confidence": 0.92,
-        },
-        {
-            "name": "rate_des_yaw_deg_s",
-            "display_name": "Desired Yaw Rate",
-            "type": "float",
-            "physical_unit": "deg/s",
-            "category": "content",
-            "component": "Attitude Controller",
-            "description": "Commanded yaw rate from flight controller",
-            "confidence": 0.92,
-        },
-        {
-            "name": "rate_ach_roll_deg_s",
-            "display_name": "Achieved Roll Rate",
-            "type": "float",
-            "physical_unit": "deg/s",
-            "category": "content",
-            "component": "Attitude Controller",
-            "description": "Measured actual roll rate",
-            "confidence": 0.92,
-        },
-        {
-            "name": "rate_ach_pitch_deg_s",
-            "display_name": "Achieved Pitch Rate",
-            "type": "float",
-            "physical_unit": "deg/s",
-            "category": "content",
-            "component": "Attitude Controller",
-            "description": "Measured actual pitch rate",
-            "confidence": 0.92,
-        },
-        {
-            "name": "rate_ach_yaw_deg_s",
-            "display_name": "Achieved Yaw Rate",
-            "type": "float",
-            "physical_unit": "deg/s",
-            "category": "content",
-            "component": "Attitude Controller",
-            "description": "Measured actual yaw rate",
-            "confidence": 0.92,
-        },
-        # ── VIBE ─────────────────────────────────────────────────────
-        {
-            "name": "vibe_x_m_s2",
-            "display_name": "Vibration X",
-            "type": "float",
-            "physical_unit": "m/s^2",
-            "category": "content",
-            "component": "Vibration Monitor",
-            "description": "X-axis vibration RMS acceleration",
-            "engineering_context": {
-                "typical_range": {"min": 0, "max": 3.0},
-                "what_high_means": "Mechanical imbalance, propeller damage, or motor failure",
-                "safety_critical": True,
-            },
-            "confidence": 0.91,
-        },
-        {
-            "name": "vibe_y_m_s2",
-            "display_name": "Vibration Y",
-            "type": "float",
-            "physical_unit": "m/s^2",
-            "category": "content",
-            "component": "Vibration Monitor",
-            "description": "Y-axis vibration RMS acceleration",
-            "engineering_context": {
-                "typical_range": {"min": 0, "max": 3.0},
-                "what_high_means": "Mechanical imbalance, propeller damage, or motor failure",
-                "safety_critical": True,
-            },
-            "confidence": 0.91,
-        },
-        {
-            "name": "vibe_z_m_s2",
-            "display_name": "Vibration Z",
-            "type": "float",
-            "physical_unit": "m/s^2",
-            "category": "content",
-            "component": "Vibration Monitor",
-            "description": "Z-axis vibration RMS acceleration",
-            "engineering_context": {
-                "typical_range": {"min": 0, "max": 3.0},
-                "what_high_means": "Mechanical imbalance or motor failure",
-                "safety_critical": True,
-            },
-            "confidence": 0.91,
-        },
-        {
-            "name": "vibe_clipping_0",
-            "display_name": "Accel Clipping X",
-            "type": "integer",
-            "category": "content",
-            "component": "Vibration Monitor",
-            "description": "Accelerometer X-axis clipping event count (should be 0)",
-            "confidence": 0.90,
-        },
-        {
-            "name": "vibe_clipping_1",
-            "display_name": "Accel Clipping Y",
-            "type": "integer",
-            "category": "content",
-            "component": "Vibration Monitor",
-            "description": "Accelerometer Y-axis clipping event count (should be 0)",
-            "confidence": 0.90,
-        },
-        {
-            "name": "vibe_clipping_2",
-            "display_name": "Accel Clipping Z",
-            "type": "integer",
-            "category": "content",
-            "component": "Vibration Monitor",
-            "description": "Accelerometer Z-axis clipping event count (should be 0)",
-            "confidence": 0.90,
-        },
-        # ── Engine ───────────────────────────────────────────────────
-        {
-            "name": "throttle_pct",
-            "display_name": "Throttle Output",
-            "type": "float",
-            "physical_unit": "%",
-            "category": "content",
-            "component": "Motor Controller",
-            "description": "Throttle percentage output to motors",
-            "engineering_context": {
-                "typical_range": {"min": 40, "max": 70},
-                "what_high_means": "UAV is working hard — possible payload, wind, or thrust loss",
-                "design_limit_hint": {"min": 0, "max": 100},
-            },
-            "confidence": 0.95,
-        },
-        # ── Labels ───────────────────────────────────────────────────
-        {
-            "name": "fault_label",
-            "display_name": "Fault Label",
-            "type": "integer",
-            "category": "content",
-            "description": "Numeric fault class (0=normal, 1=GPS, 2=accel, 3=engine, 4=RC)",
-            "confidence": 0.99,
-        },
-        {
-            "name": "fault_type",
-            "display_name": "Fault Type",
-            "type": "string",
-            "category": "content",
-            "description": "Human-readable fault category name",
-            "confidence": 0.99,
         },
     ]
 
     relationships = [
         {
-            "fields": ["gps_num_sats", "gps_hdop"],
-            "relationship": "inverse_correlation",
-            "description": "More satellites generally means lower HDOP (better accuracy)",
-            "expected_correlation": "negative",
-            "diagnostic_value": "Both degrading simultaneously confirms GPS environment issue",
-        },
-        {
-            "fields": ["throttle_pct", "gps_alt_m"],
+            "fields": ["att_DesRoll", "att_Roll"],
             "relationship": "control_target",
-            "description": "Throttle controls altitude; high throttle with dropping altitude indicates engine fault",
-            "diagnostic_value": "Divergence is the primary engine-fault signature",
+            "description": "Actual roll should track desired roll; divergence indicates control failure",
+            "diagnostic_value": "Gap diagnoses actuator or attitude control faults",
         },
         {
-            "fields": ["vibe_x_m_s2", "vibe_y_m_s2", "vibe_z_m_s2"],
-            "relationship": "proportional",
-            "description": "Vibration axes tend to increase together during mechanical failures",
-            "expected_correlation": "positive",
-        },
-        {
-            "fields": ["rate_des_roll_deg_s", "rate_ach_roll_deg_s"],
+            "fields": ["att_DesPitch", "att_Pitch"],
             "relationship": "control_target",
-            "description": "Achieved roll rate should track desired; divergence means control degradation",
-            "diagnostic_value": "Gap between desired and achieved rates diagnoses actuator or RC faults",
-        },
-        {
-            "fields": ["rate_des_pitch_deg_s", "rate_ach_pitch_deg_s"],
-            "relationship": "control_target",
-            "description": "Achieved pitch rate should track desired",
+            "description": "Actual pitch should track desired pitch",
             "diagnostic_value": "Used alongside roll tracking to isolate axis-specific failures",
         },
         {
-            "fields": ["imu_acc_x_m_s2", "imu_acc_y_m_s2"],
+            "fields": ["att_DesYaw", "att_Yaw"],
+            "relationship": "control_target",
+            "description": "Yaw heading should match commanded heading",
+            "diagnostic_value": "Yaw divergence may indicate compass interference or RC fault",
+        },
+        {
+            "fields": ["att_ErrRP", "att_ErrYaw"],
             "relationship": "correlation",
-            "description": "Body-frame lateral accelerations should be near zero in stable hover",
+            "description": "Both errors rising together indicates systemic attitude control degradation",
+        },
+        {
+            "fields": ["imu_AccX", "imu_AccY"],
+            "relationship": "correlation",
+            "description": "Lateral accelerations should be near zero in stable hover",
             "diagnostic_value": "Simultaneous bias growth indicates accelerometer calibration failure",
+        },
+        {
+            "fields": ["imu_GyrX", "imu_GyrY", "imu_GyrZ"],
+            "relationship": "proportional",
+            "description": "Gyro rates should be small in stable flight; all elevated means vibration",
+        },
+        {
+            "fields": ["mag_X", "mag_Y", "mag_Z"],
+            "relationship": "magnitude_constraint",
+            "description": "Total magnetic field magnitude should be roughly constant (~500 mGauss); "
+                           "sudden changes indicate interference",
         },
     ]
 
     blind_spots = [
-        "No battery voltage/current sensor — cannot detect power supply degradation",
-        "No barometric altimeter — cannot cross-validate GPS altitude",
-        "No magnetometer data — cannot assess compass interference or yaw accuracy",
-        "No motor RPM telemetry — cannot isolate which motor is failing during engine faults",
-        "No wind speed sensor — cannot distinguish wind disturbances from control faults",
+        "No GPS position data in Fusion — cannot directly detect position drift",
+        "No barometric altimeter — cannot cross-validate altitude",
+        "No battery voltage/current — cannot detect power supply degradation",
+        "No vibration (VIBE) data in Fusion — cannot assess mechanical health",
+        "No throttle/motor data — cannot detect engine thrust loss directly",
     ]
 
     return {
         "records": records,
+        "ground_truth": gt_info,
         "metadata": metadata,
         "description_content": description,
         "discovered_fields": discovered_fields,
         "relationships": relationships,
         "blind_spots": blind_spots,
         "analysis_summary": {
-            "files_analyzed": 2,
+            "files_analyzed": 7,
             "total_records": len(records),
             "unique_fields": len(discovered_fields),
             "ai_powered": True,
+            "data_source": "Kaggle TLM:UAV (real data)",
         },
         "recommendation": {
-            "suggested_name": "UAV Copter - TLM Flight Test",
+            "suggested_name": "UAV Copter - TLM Kaggle Dataset",
             "suggested_type": "uav",
             "suggested_description": (
-                "Multi-rotor UAV telemetry with GPS, IMU, attitude rate, and vibration "
-                "monitoring. Data contains four distinct fault scenarios (GPS, accelerometer, "
-                "engine, RC system) injected using the Time Line Modeling method."
+                "REAL UAV telemetry from the TLM:UAV Anomaly Detection Dataset. "
+                "12,253 records with ATT, MAG, and IMU sensors. Contains four fault "
+                "types for benchmarking anomaly detection accuracy."
             ),
-            "confidence": 0.95,
+            "confidence": 0.98,
             "system_subtype": "Multi-Rotor Quadcopter",
             "domain": "Aerospace / UAV",
             "detected_components": [
-                {"name": "GPS Receiver", "role": "Position and velocity sensing", "fields": ["gps_lat", "gps_lon", "gps_alt_m", "gps_speed_m_s", "gps_num_sats", "gps_hdop"]},
-                {"name": "IMU", "role": "Inertial measurement (accel + gyro)", "fields": ["imu_acc_x_m_s2", "imu_acc_y_m_s2", "imu_acc_z_m_s2", "imu_gyro_x_rad_s", "imu_gyro_y_rad_s", "imu_gyro_z_rad_s"]},
-                {"name": "Attitude Controller", "role": "Rate control loop (desired vs achieved)", "fields": ["rate_des_roll_deg_s", "rate_des_pitch_deg_s", "rate_des_yaw_deg_s", "rate_ach_roll_deg_s", "rate_ach_pitch_deg_s", "rate_ach_yaw_deg_s"]},
-                {"name": "Vibration Monitor", "role": "Mechanical health monitoring", "fields": ["vibe_x_m_s2", "vibe_y_m_s2", "vibe_z_m_s2", "vibe_clipping_0", "vibe_clipping_1", "vibe_clipping_2"]},
-                {"name": "Motor Controller", "role": "Throttle and propulsion", "fields": ["throttle_pct"]},
+                {
+                    "name": "Attitude Controller",
+                    "role": "Desired vs actual attitude (roll/pitch/yaw)",
+                    "fields": ["att_DesRoll", "att_Roll", "att_DesPitch", "att_Pitch",
+                               "att_DesYaw", "att_Yaw", "att_ErrRP", "att_ErrYaw"],
+                },
+                {
+                    "name": "Magnetometer",
+                    "role": "Compass heading and magnetic field sensing",
+                    "fields": ["mag_X", "mag_Y", "mag_Z"],
+                },
+                {
+                    "name": "IMU",
+                    "role": "Inertial measurement (accelerometer + gyroscope)",
+                    "fields": ["imu_GyrX", "imu_GyrY", "imu_GyrZ",
+                               "imu_AccX", "imu_AccY", "imu_AccZ"],
+                },
             ],
-            "probable_use_case": "UAV flight testing and anomaly detection research",
+            "probable_use_case": "UAV anomaly detection benchmarking with ground truth",
             "data_characteristics": {
-                "temporal_resolution": "100 ms (10 Hz)",
-                "duration_estimate": "~100 seconds",
+                "temporal_resolution": "~50 ms (reconstructed)",
+                "duration_estimate": "~20 minutes of flight",
                 "completeness": "100%",
+                "data_source": "Kaggle TLM:UAV (real SITL telemetry)",
             },
         },
     }
