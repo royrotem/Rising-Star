@@ -33,9 +33,24 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
 
-    # Ingestion
-    MAX_FILE_SIZE_MB: int = 500
-    SUPPORTED_FORMATS: list = ["csv", "json", "parquet", "can", "bin"]
+    # Ingestion - File Size Limits
+    MAX_FILE_SIZE_MB: int = 5000  # 5GB for single files
+    MAX_ARCHIVE_SIZE_MB: int = 5000  # 5GB for compressed archives
+    MAX_EXTRACTED_SIZE_GB: int = 50  # 50GB total extracted from archives
+    MAX_FILES_PER_ARCHIVE: int = 10000  # Zip bomb protection
+    SUPPORTED_FORMATS: list = ["csv", "json", "parquet", "can", "bin", "xlsx", "xml", "yaml"]
+
+    # Ingestion - Chunking for Large Files
+    CHUNK_SIZE_RECORDS: int = 100_000  # Records per chunk
+    CHUNK_SIZE_BYTES: int = 100 * 1024 * 1024  # 100MB per chunk
+    STREAM_BUFFER_SIZE: int = 8 * 1024 * 1024  # 8MB streaming buffer
+
+    # Ingestion - Storage Thresholds (use PostgreSQL above these)
+    USE_DB_THRESHOLD_RECORDS: int = 50_000  # Use PostgreSQL above this
+    USE_DB_THRESHOLD_MB: int = 100  # Use PostgreSQL above this size
+
+    # Data Directory
+    DATA_DIR: str = "/app/data"
 
     # Anomaly Detection
     ANOMALY_THRESHOLD: float = 0.95

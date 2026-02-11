@@ -13,12 +13,15 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 
 logger = logging.getLogger("uaie.systems")
 
-from ..services.data_store import data_store
+from ..services.data_store import data_store, hybrid_store
 from ..services.ingestion import IngestionService
+from ..services.streaming_ingestion import StreamingIngestionService
 from ..services.analysis_engine import analysis_engine
 from ..services.ai_agents import orchestrator as ai_orchestrator
 from ..services.recommendation import (
@@ -56,6 +59,7 @@ router = APIRouter(prefix="/systems", tags=["Systems"])
 # ─── Service instances ────────────────────────────────────────────────
 
 ingestion_service = IngestionService()
+streaming_ingestion_service = StreamingIngestionService()
 
 # ─── Demo mode ────────────────────────────────────────────────────────
 
@@ -610,6 +614,185 @@ async def ingest_data(
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{system_id}/ingest-streaming")
+async def ingest_data_streaming(
+    request: Request,
+    system_id: str,
+    file: UploadFile = File(...),
+    source_name: str = Query(default="uploaded_file"),
+):
+    """
+    Ingest a large data file using streaming with real-time progress updates.
+
+    This endpoint is designed for large files (up to 5GB) and provides:
+    - Server-Sent Events (SSE) for real-time progress updates
+    - Chunked processing to handle files larger than available memory
+    - Automatic schema discovery using incremental profiling
+    - Hybrid storage (file-based for small, PostgreSQL for large datasets)
+
+    Returns an SSE stream with progress events.
+    """
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    async def generate_progress_events():
+        """Generator that yields SSE events during ingestion."""
+        source_id = str(uuid.uuid4())
+
+        try:
+            yield {
+                "event": "start",
+                "data": json.dumps({
+                    "status": "starting",
+                    "source_id": source_id,
+                    "filename": file.filename,
+                    "message": "Starting file ingestion...",
+                }),
+            }
+
+            # Get file size if available
+            file_size = None
+            try:
+                file.file.seek(0, 2)  # Seek to end
+                file_size = file.file.tell()
+                file.file.seek(0)  # Reset to beginning
+            except Exception:
+                pass
+
+            file_size_mb = (file_size / (1024 * 1024)) if file_size else 0
+
+            yield {
+                "event": "progress",
+                "data": json.dumps({
+                    "status": "analyzing",
+                    "progress_pct": 5,
+                    "message": f"File size: {file_size_mb:.1f} MB. Analyzing structure...",
+                }),
+            }
+
+            # Progress callback for streaming ingestion
+            last_progress = {"pct": 0}
+
+            def progress_callback(processed: int, total: int, message: str = ""):
+                pct = int((processed / total) * 100) if total > 0 else 0
+                last_progress["pct"] = pct
+                last_progress["processed"] = processed
+                last_progress["total"] = total
+                last_progress["message"] = message
+
+            # Run streaming ingestion
+            result = await streaming_ingestion_service.ingest_large_file(
+                file_content=file.file,
+                filename=file.filename,
+                system_id=system_id,
+                source_id=source_id,
+                progress_callback=progress_callback,
+            )
+
+            yield {
+                "event": "progress",
+                "data": json.dumps({
+                    "status": "profiling",
+                    "progress_pct": 80,
+                    "message": "Building field profiles...",
+                }),
+            }
+
+            # Store discovered schema
+            discovered_fields = result.get("discovered_fields", [])
+            data_store.update_system(system_id, {
+                "discovered_schema": discovered_fields,
+                "status": "data_ingested",
+            })
+
+            # Store metadata about the source
+            data_store.store_ingested_data(
+                system_id=system_id,
+                source_id=source_id,
+                source_name=source_name,
+                records=result.get("sample_records", [])[:1000],  # Store sample
+                discovered_schema={
+                    "fields": discovered_fields,
+                    "storage_type": result.get("storage_type", "chunked"),
+                },
+                metadata={
+                    "filename": file.filename,
+                    "content_type": file.content_type,
+                    "total_records": result.get("record_count", 0),
+                    "file_size_mb": file_size_mb,
+                    "streaming_ingestion": True,
+                },
+            )
+
+            yield {
+                "event": "complete",
+                "data": json.dumps({
+                    "status": "success",
+                    "source_id": source_id,
+                    "record_count": result.get("record_count", 0),
+                    "field_count": len(discovered_fields),
+                    "storage_type": result.get("storage_type", "chunked"),
+                    "discovered_fields": discovered_fields,
+                    "sample_records": result.get("sample_records", [])[:5],
+                    "message": f"Successfully ingested {result.get('record_count', 0):,} records",
+                }),
+            }
+
+        except Exception as e:
+            logger.error("Streaming ingestion failed: %s", str(e))
+            logger.error(traceback.format_exc())
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "status": "error",
+                    "error": str(e),
+                    "message": f"Ingestion failed: {str(e)}",
+                }),
+            }
+
+    return EventSourceResponse(generate_progress_events())
+
+
+@router.get("/{system_id}/ingestion-status/{job_id}")
+async def get_ingestion_status(system_id: str, job_id: str):
+    """
+    Get the status of a streaming ingestion job.
+
+    Useful for checking progress of large file uploads.
+    """
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    # Check if hybrid store has a running job
+    try:
+        if hybrid_store._db_pool:
+            async with hybrid_store._db_pool.acquire() as conn:
+                row = await conn.fetchrow("""
+                    SELECT status, total_records, chunk_count,
+                           started_at, completed_at, error_message
+                    FROM ingestion_jobs
+                    WHERE id = $1 AND system_id = $2
+                """, job_id, system_id)
+
+                if row:
+                    return {
+                        "job_id": job_id,
+                        "system_id": system_id,
+                        "status": row["status"],
+                        "total_records": row["total_records"],
+                        "chunk_count": row["chunk_count"],
+                        "started_at": str(row["started_at"]) if row["started_at"] else None,
+                        "completed_at": str(row["completed_at"]) if row["completed_at"] else None,
+                        "error_message": row["error_message"],
+                    }
+    except Exception as e:
+        logger.warning("Could not query ingestion job status: %s", e)
+
+    raise HTTPException(status_code=404, detail="Ingestion job not found")
 
 
 @router.post("/{system_id}/confirm-fields")

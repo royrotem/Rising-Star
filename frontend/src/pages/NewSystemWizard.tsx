@@ -199,6 +199,12 @@ export default function NewSystemWizard() {
 
   // Step 1: File uploads (multiple)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{
+    active: boolean;
+    phase: string;
+    percent: number;
+    message: string;
+  }>({ active: false, phase: '', percent: 0, message: '' });
 
   // Step 2: System details (AI-recommended)
   const [systemData, setSystemData] = useState<SystemFormData>({
@@ -250,23 +256,69 @@ export default function NewSystemWizard() {
       // Analyze uploaded files and get AI recommendations
       setIsProcessing(true);
       setError(null);
+
+      // Calculate total file size
+      const totalSizeMB = uploadedFiles.reduce((sum, uf) => sum + uf.file.size, 0) / (1024 * 1024);
+      const isLargeUpload = totalSizeMB > 50; // Consider large if > 50MB
+
       try {
+        // Show progress for upload phase
+        setUploadProgress({
+          active: true,
+          phase: 'upload',
+          percent: 0,
+          message: isLargeUpload
+            ? `Uploading ${totalSizeMB.toFixed(1)} MB of data...`
+            : 'Uploading files...',
+        });
+
         // First, upload all files and analyze them
         const formData = new FormData();
         uploadedFiles.forEach((uf) => {
           formData.append('files', uf.file);
         });
 
+        // Simulate upload progress for better UX
+        let uploadPercent = 0;
+        const uploadProgressInterval = setInterval(() => {
+          uploadPercent = Math.min(uploadPercent + (isLargeUpload ? 2 : 10), 90);
+          setUploadProgress(prev => ({
+            ...prev,
+            percent: uploadPercent,
+            message: uploadPercent < 50
+              ? 'Uploading files...'
+              : 'Processing data...',
+          }));
+        }, isLargeUpload ? 500 : 200);
+
         const response = await fetch('/api/v1/systems/analyze-files', {
           method: 'POST',
           body: formData,
         });
 
+        clearInterval(uploadProgressInterval);
+
         if (!response.ok) {
           throw new Error('Failed to analyze files');
         }
 
+        // Show analysis phase
+        setUploadProgress({
+          active: true,
+          phase: 'analyze',
+          percent: 95,
+          message: 'AI analysis in progress...',
+        });
+
         const result = await response.json();
+
+        // Complete
+        setUploadProgress({
+          active: true,
+          phase: 'complete',
+          percent: 100,
+          message: 'Analysis complete!',
+        });
 
         // Store analysis ID for later use
         setAnalysisId(result.analysis_id);
@@ -296,10 +348,15 @@ export default function NewSystemWizard() {
         setConfirmationRequests(result.confirmation_requests || []);
         setRecordCount(result.total_records || 0);
 
-        setCurrentStep(2);
+        // Reset progress and move to next step
+        setTimeout(() => {
+          setUploadProgress({ active: false, phase: '', percent: 0, message: '' });
+          setCurrentStep(2);
+        }, 500);
       } catch (err) {
         console.error('Failed to analyze files:', err);
         setError('Failed to analyze files. Please make sure the backend is running.');
+        setUploadProgress({ active: false, phase: '', percent: 0, message: '' });
       } finally {
         setIsProcessing(false);
       }
@@ -466,6 +523,7 @@ export default function NewSystemWizard() {
                         <button
                           onClick={() => removeFile(uf.id)}
                           className="p-1 hover:bg-stone-500 rounded transition-colors"
+                          disabled={uploadProgress.active}
                         >
                           <X className="w-4 h-4 text-stone-400 hover:text-red-400" />
                         </button>
@@ -473,6 +531,41 @@ export default function NewSystemWizard() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Upload Progress Bar */}
+            {uploadProgress.active && (
+              <div className="mt-6 p-4 bg-stone-700/70 rounded-lg border border-stone-600">
+                <div className="flex items-center gap-3 mb-3">
+                  {uploadProgress.phase === 'complete' ? (
+                    <CheckCircle className="w-5 h-5 text-green-400" />
+                  ) : (
+                    <Loader2 className="w-5 h-5 text-primary-400 animate-spin" />
+                  )}
+                  <span className="text-sm font-medium text-white">
+                    {uploadProgress.message}
+                  </span>
+                  <span className="ml-auto text-sm text-stone-400">
+                    {uploadProgress.percent}%
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-stone-600 rounded-full overflow-hidden">
+                  <div
+                    className={clsx(
+                      'h-full rounded-full transition-all duration-300',
+                      uploadProgress.phase === 'complete'
+                        ? 'bg-green-500'
+                        : 'bg-primary-500'
+                    )}
+                    style={{ width: `${uploadProgress.percent}%` }}
+                  />
+                </div>
+                {uploadProgress.phase === 'analyze' && (
+                  <p className="text-xs text-stone-400 mt-2">
+                    Our AI is discovering data patterns, field relationships, and system type...
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -1126,15 +1219,15 @@ export default function NewSystemWizard() {
             </button>
             <button
               onClick={handleNext}
-              disabled={!canProceed() || isProcessing}
+              disabled={!canProceed() || isProcessing || uploadProgress.active}
               className={clsx(
                 'px-6 py-3 rounded-lg font-medium transition-colors flex items-center gap-2',
-                canProceed() && !isProcessing
+                canProceed() && !isProcessing && !uploadProgress.active
                   ? 'bg-primary-500 hover:bg-primary-600 text-white'
                   : 'bg-stone-700 text-stone-400 cursor-not-allowed'
               )}
             >
-              {isProcessing ? (
+              {isProcessing || uploadProgress.active ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Processing...
