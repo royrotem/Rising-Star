@@ -7,36 +7,41 @@ import {
   Loader2,
   Sparkles,
   Play,
+  Navigation,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
 import type { System } from '../types';
 import { getStatusColor, getHealthColor } from '../utils/colors';
 
+type DemoType = 'hvac' | 'uav' | null;
+
 export default function Systems() {
   const navigate = useNavigate();
   const [systems, setSystems] = useState<System[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [creatingDemo, setCreatingDemo] = useState(false);
+  const [creatingDemo, setCreatingDemo] = useState<DemoType>(null);
 
   useEffect(() => {
     loadSystems();
   }, []);
 
-  const handleCreateDemo = async () => {
-    setCreatingDemo(true);
+  const handleCreateDemo = async (type: DemoType = 'hvac') => {
+    setCreatingDemo(type);
+    const endpoint = type === 'uav'
+      ? '/api/v1/systems/demo/create-uav'
+      : '/api/v1/systems/demo/create';
     try {
-      const response = await fetch('/api/v1/systems/demo/create', { method: 'POST' });
+      const response = await fetch(endpoint, { method: 'POST' });
       if (!response.ok) throw new Error('Failed to create demo');
       const data = await response.json();
-      // Navigate to the new demo system
       navigate(`/systems/${data.system_id}`);
     } catch (error) {
       console.error('Failed to create demo:', error);
       alert('Failed to create demo system. Please try again.');
     } finally {
-      setCreatingDemo(false);
+      setCreatingDemo(null);
     }
   };
 
@@ -87,19 +92,36 @@ export default function Systems() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={handleCreateDemo}
-            disabled={creatingDemo}
+            onClick={() => handleCreateDemo('hvac')}
+            disabled={creatingDemo !== null}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-all shadow-lg shadow-purple-500/20"
           >
-            {creatingDemo ? (
+            {creatingDemo === 'hvac' ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Creating Demo...
+                Creating...
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                Try Demo
+                HVAC Demo
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => handleCreateDemo('uav')}
+            disabled={creatingDemo !== null}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-all shadow-lg shadow-sky-500/20"
+          >
+            {creatingDemo === 'uav' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <Navigation className="w-4 h-4" />
+                UAV Demo
               </>
             )}
           </button>
@@ -120,25 +142,42 @@ export default function Systems() {
             <h2 className="text-lg font-medium text-white mb-2">Welcome to UAIE</h2>
             <p className="text-stone-400 max-w-md mx-auto">
               Universal Autonomous Insight Engine — AI-powered anomaly detection for hardware systems.
-              Try the demo to see 25 AI agents analyze real sensor data.
+              Try a demo to see 25 AI agents analyze real sensor data.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
-              onClick={handleCreateDemo}
-              disabled={creatingDemo}
+              onClick={() => handleCreateDemo('hvac')}
+              disabled={creatingDemo !== null}
               className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 text-white rounded-lg font-medium transition-all shadow-lg shadow-purple-500/25"
             >
-              {creatingDemo ? (
+              {creatingDemo === 'hvac' ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Creating Demo...
+                  Creating HVAC Demo...
                 </>
               ) : (
                 <>
                   <Play className="w-5 h-5" />
-                  Run Interactive Demo
+                  HVAC Demo
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => handleCreateDemo('uav')}
+              disabled={creatingDemo !== null}
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 disabled:opacity-50 text-white rounded-lg font-medium transition-all shadow-lg shadow-sky-500/25"
+            >
+              {creatingDemo === 'uav' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Creating UAV Demo...
+                </>
+              ) : (
+                <>
+                  <Navigation className="w-5 h-5" />
+                  UAV Demo (TLM)
                 </>
               )}
             </button>
@@ -152,9 +191,14 @@ export default function Systems() {
             </button>
           </div>
 
-          <p className="mt-8 text-xs text-stone-500">
-            Demo creates an HVAC system with 1000 records and embedded anomalies for all 25 AI agents
-          </p>
+          <div className="mt-8 space-y-1">
+            <p className="text-xs text-stone-500">
+              HVAC: Building sensor data with 1000 records and 10 anomaly types
+            </p>
+            <p className="text-xs text-stone-500">
+              UAV: Flight telemetry (GPS, IMU, RATE, VIBE) with 4 fault types from TLM method
+            </p>
+          </div>
         </div>
       ) : (
         <div className="space-y-2">
