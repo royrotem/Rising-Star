@@ -1491,6 +1491,89 @@ async def create_demo_system():
     }
 
 
+@router.post("/demo/create-uav")
+async def create_demo_uav_system():
+    """
+    Create a fully-populated demo UAV system with TLM-UAV telemetry data.
+
+    This endpoint creates a complete demo system with:
+    - 1000 records of synthetic UAV flight telemetry (GPS, IMU, RATE, VIBE)
+    - Four injected fault types (GPS, accelerometer, engine, RC system)
+    - Pre-discovered schema with engineering context
+    - Ready for immediate analysis demonstration
+
+    Based on the TLM:UAV Anomaly Detection Dataset methodology.
+    """
+    from ..services.tlm_uav_generator import generate_full_tlm_uav_package
+
+    logger.info("=" * 60)
+    logger.info("DEMO MODE: Creating TLM-UAV demo system...")
+
+    demo = generate_full_tlm_uav_package()
+
+    system_id = f"demo-uav-{str(uuid.uuid4())[:8]}"
+
+    system_data = {
+        "id": system_id,
+        "name": demo["metadata"]["system_name"],
+        "system_type": demo["metadata"]["system_type"],
+        "serial_number": "DEMO-UAV-001",
+        "model": "Quadcopter-SITL",
+        "metadata": {
+            "manufacturer": "UAIE Demo (ArduPilot SITL)",
+            "description": demo["metadata"]["description"],
+            "is_demo": True,
+            "dataset_reference": demo["metadata"]["dataset_reference"],
+        },
+        "status": "data_ingested",
+        "health_score": 100.0,
+        "discovered_schema": demo["discovered_fields"],
+        "confirmed_fields": {},
+        "is_demo": True,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+    created_system = data_store.create_system(system_data)
+    logger.info("DEMO-UAV: Created system %s", system_id)
+
+    source_id = str(uuid.uuid4())
+    data_store.store_ingested_data(
+        system_id=system_id,
+        source_id=source_id,
+        source_name="uav_tlm_telemetry.csv",
+        records=demo["records"],
+        discovered_schema={
+            "fields": demo["discovered_fields"],
+            "relationships": demo["relationships"],
+        },
+        metadata={
+            "filename": "uav_tlm_telemetry.csv",
+            "demo_mode": True,
+            "anomalies_injected": demo["metadata"]["demo_anomalies_injected"],
+            "fault_types": demo["metadata"]["anomaly_types"],
+        },
+    )
+    logger.info("DEMO-UAV: Stored %d records", len(demo["records"]))
+
+    data_store.update_system(system_id, {
+        "status": "data_ingested",
+    })
+
+    logger.info("DEMO-UAV: System ready for analysis")
+    logger.info("=" * 60)
+
+    return {
+        "status": "success",
+        "message": "TLM-UAV demo system created successfully. Ready for analysis!",
+        "system_id": system_id,
+        "system_name": demo["metadata"]["system_name"],
+        "record_count": len(demo["records"]),
+        "field_count": len(demo["discovered_fields"]),
+        "anomaly_types_injected": demo["metadata"]["anomaly_types"],
+        "recommendation": demo["recommendation"],
+    }
+
+
 @router.delete("/demo/cleanup")
 async def cleanup_demo_systems():
     """
