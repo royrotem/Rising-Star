@@ -24,6 +24,7 @@ import {
   FileJson,
   FileSpreadsheet,
   File,
+  FolderArchive,
   Lightbulb,
   Sun,
   Wind,
@@ -188,6 +189,7 @@ function getFileIcon(filename: string) {
   const ext = filename.split('.').pop()?.toLowerCase();
   if (ext === 'json' || ext === 'jsonl') return FileJson;
   if (ext === 'csv' || ext === 'xlsx' || ext === 'parquet') return FileSpreadsheet;
+  if (ext === 'zip') return FolderArchive;
   return File;
 }
 
@@ -463,9 +465,9 @@ export default function NewSystemWizard() {
                 <div>
                   <h3 className="font-medium text-white">Data Pool</h3>
                   <p className="text-sm text-stone-400 mt-1">
-                    Upload all relevant data files. Our system will automatically discover relationships
-                    between files, understand the data structure, and infer the system type.
-                    You can upload telemetry data, logs, and description files that explain the fields.
+                    Upload data files or ZIP archives. Our system automatically discovers relationships
+                    between files, understands data structure, and infers system type.
+                    Supports CSV, JSON, Parquet, Excel, and ZIP archives with multiple files inside.
                   </p>
                 </div>
               </div>
@@ -483,7 +485,7 @@ export default function NewSystemWizard() {
                 type="file"
                 className="hidden"
                 id="file-upload"
-                accept=".csv,.tsv,.txt,.dat,.log,.json,.jsonl,.ndjson,.xml,.yaml,.yml,.parquet,.feather,.xlsx,.xls,.can,.bin"
+                accept=".csv,.tsv,.txt,.dat,.log,.json,.jsonl,.ndjson,.xml,.yaml,.yml,.parquet,.feather,.xlsx,.xls,.can,.bin,.zip"
                 multiple
                 onChange={handleFileSelect}
               />
@@ -494,7 +496,7 @@ export default function NewSystemWizard() {
                   Upload multiple files at once
                 </p>
                 <p className="text-sm text-stone-400 mt-2">
-                  Supported: CSV, JSON, JSONL, Parquet, Excel, Text, Markdown, Log files
+                  Supported: CSV, JSON, Parquet, Excel, ZIP archives, and more
                 </p>
               </label>
             </div>

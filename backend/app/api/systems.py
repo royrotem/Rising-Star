@@ -22,6 +22,7 @@ logger = logging.getLogger("uaie.systems")
 from ..services.data_store import data_store, hybrid_store
 from ..services.ingestion import IngestionService
 from ..services.streaming_ingestion import StreamingIngestionService
+from ..services.archive_handler import archive_ingestion_service
 from ..services.analysis_engine import analysis_engine
 from ..services.ai_agents import orchestrator as ai_orchestrator
 from ..services.recommendation import (
@@ -793,6 +794,138 @@ async def get_ingestion_status(system_id: str, job_id: str):
         logger.warning("Could not query ingestion job status: %s", e)
 
     raise HTTPException(status_code=404, detail="Ingestion job not found")
+
+
+@router.post("/{system_id}/ingest-archive")
+async def ingest_archive(
+    request: Request,
+    system_id: str,
+    file: UploadFile = File(...),
+):
+    """
+    Ingest data from a ZIP archive containing multiple data files.
+
+    This endpoint:
+    - Extracts all supported data files from the archive
+    - Processes each file using streaming ingestion
+    - Combines field profiles from all files
+    - Provides SSE progress updates during extraction and processing
+
+    Supports:
+    - ZIP files up to 5GB compressed
+    - Up to 50GB extracted data
+    - Up to 10,000 files per archive
+    - Nested archives (up to 3 levels deep)
+
+    Returns an SSE stream with progress events.
+    """
+    system = data_store.get_system(system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    # Validate file type
+    filename = file.filename or "archive.zip"
+    if not filename.lower().endswith('.zip'):
+        raise HTTPException(
+            status_code=400,
+            detail="Only ZIP files are supported for archive upload"
+        )
+
+    async def generate_progress_events():
+        """Generator that yields SSE events during archive ingestion."""
+        try:
+            yield {
+                "event": "start",
+                "data": json.dumps({
+                    "status": "starting",
+                    "archive_name": filename,
+                    "message": "Starting archive extraction...",
+                }),
+            }
+
+            # Get file size
+            file_size = None
+            try:
+                file.file.seek(0, 2)
+                file_size = file.file.tell()
+                file.file.seek(0)
+            except Exception:
+                pass
+
+            file_size_mb = (file_size / (1024 * 1024)) if file_size else 0
+
+            yield {
+                "event": "progress",
+                "data": json.dumps({
+                    "status": "extracting",
+                    "progress_pct": 5,
+                    "message": f"Archive size: {file_size_mb:.1f} MB. Extracting files...",
+                }),
+            }
+
+            # Progress callback for archive ingestion
+            last_progress = {"percent": 0}
+
+            def progress_callback(progress: dict):
+                last_progress.update(progress)
+
+            # Run archive ingestion
+            result = await archive_ingestion_service.ingest_archive(
+                archive_content=file.file,
+                archive_filename=filename,
+                system_id=system_id,
+                progress_callback=progress_callback,
+            )
+
+            if result.get("status") == "error":
+                yield {
+                    "event": "error",
+                    "data": json.dumps({
+                        "status": "error",
+                        "errors": result.get("errors", []),
+                        "message": "Archive extraction failed",
+                    }),
+                }
+                return
+
+            # Update system with combined schema from all files
+            if result.get("ingested_files"):
+                data_store.update_system(system_id, {
+                    "status": "data_ingested",
+                    "archive_ingested": True,
+                    "archive_files_count": len(result.get("ingested_files", [])),
+                })
+
+            yield {
+                "event": "complete",
+                "data": json.dumps({
+                    "status": "success",
+                    "archive_name": filename,
+                    "total_files_extracted": result.get("total_files_extracted", 0),
+                    "data_files_processed": result.get("data_files_processed", 0),
+                    "total_record_count": result.get("total_record_count", 0),
+                    "total_extracted_mb": result.get("total_extracted_bytes", 0) / (1024 * 1024),
+                    "ingested_files": result.get("ingested_files", []),
+                    "skipped_files": result.get("skipped_files", []),
+                    "file_errors": result.get("file_errors", []),
+                    "sample_records": result.get("sample_records", [])[:5],
+                    "message": f"Successfully processed {result.get('data_files_processed', 0)} files with {result.get('total_record_count', 0):,} total records",
+                }),
+            }
+
+        except Exception as e:
+            logger.error("Archive ingestion failed: %s", str(e))
+            logger.error(traceback.format_exc())
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "status": "error",
+                    "error": str(e),
+                    "message": f"Archive ingestion failed: {str(e)}",
+                }),
+            }
+
+    return EventSourceResponse(generate_progress_events())
 
 
 @router.post("/{system_id}/confirm-fields")
