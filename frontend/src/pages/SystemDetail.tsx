@@ -12,9 +12,16 @@ import {
   Download,
   Activity,
   Settings2,
+  Target,
+  Shield,
+  CheckCircle,
+  X,
+  XCircle,
+  MinusCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { systemsApi } from '../services/api';
+import { systemsApi, demoApi } from '../services/api';
+import type { GroundTruthEvaluation } from '../services/api';
 import type { System, AnalysisResult } from '../types';
 import { FeedbackButtons, FeedbackSummaryBanner } from '../components/AnomalyFeedback';
 import { useAnalysisStream } from '../hooks/useAnalysisStream';
@@ -23,6 +30,66 @@ import { reportApi } from '../services/reportApi';
 import BaselinePanel from '../components/BaselinePanel';
 import WatchdogPanel from '../components/WatchdogPanel';
 import { getSeverityCardColor } from '../utils/colors';
+
+// ── Classification color map ────────────────────────────────────────────
+const CLASSIFICATION_COLORS: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  true_positive: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/30', label: 'Detected Correctly' },
+  false_negative: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30', label: 'Missed (FN)' },
+  false_positive: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/30', label: 'False Alarm (FP)' },
+  true_negative: { bg: 'bg-stone-500/10', text: 'text-stone-400', border: 'border-stone-500/30', label: 'Correct Normal' },
+};
+
+// ── SVG ROC Curve ───────────────────────────────────────────────────────
+function RocCurve({ points, auc }: { points: Array<{ fpr: number; tpr: number }>; auc: number }) {
+  const w = 280, h = 220, pad = 40;
+  const toX = (fpr: number) => pad + fpr * (w - pad - 10);
+  const toY = (tpr: number) => h - pad - tpr * (h - pad - 10);
+  const pathD = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.fpr).toFixed(1)},${toY(p.tpr).toFixed(1)}`)
+    .join(' ');
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full max-w-[280px]">
+      <line x1={pad} y1={h - pad} x2={w - 10} y2={h - pad} stroke="#57534e" strokeWidth="1" />
+      <line x1={pad} y1={10} x2={pad} y2={h - pad} stroke="#57534e" strokeWidth="1" />
+      <line x1={pad} y1={h - pad} x2={w - 10} y2={10} stroke="#57534e" strokeWidth="0.5" strokeDasharray="4,4" />
+      <path d={pathD} fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinejoin="round" />
+      <path
+        d={`${pathD} L${toX(points[points.length - 1]?.fpr ?? 1)},${toY(0)} L${toX(0)},${toY(0)} Z`}
+        fill="#22d3ee" fillOpacity="0.08"
+      />
+      {points.map((p, i) => (
+        <circle key={i} cx={toX(p.fpr)} cy={toY(p.tpr)} r="3" fill="#22d3ee" fillOpacity="0.6" />
+      ))}
+      <text x={w / 2} y={h - 5} textAnchor="middle" fill="#a8a29e" fontSize="10">FPR</text>
+      <text x={12} y={h / 2} textAnchor="middle" fill="#a8a29e" fontSize="10" transform={`rotate(-90,12,${h / 2})`}>TPR</text>
+      <text x={w - 10} y={20} textAnchor="end" fill="#22d3ee" fontSize="11" fontWeight="bold">AUC = {auc.toFixed(3)}</text>
+    </svg>
+  );
+}
+
+// ── Confusion Matrix ────────────────────────────────────────────────────
+function ConfusionMatrix({ cm }: { cm: GroundTruthEvaluation['confusion_matrix'] }) {
+  const total = cm.true_positive + cm.false_positive + cm.false_negative + cm.true_negative;
+  const cell = (value: number, color: string) => (
+    <div className={clsx('rounded-lg p-3 text-center', color)}>
+      <div className="text-lg font-bold tabular-nums">{value.toLocaleString()}</div>
+      <div className="text-[10px] opacity-60">{total > 0 ? ((value / total) * 100).toFixed(1) : 0}%</div>
+    </div>
+  );
+  return (
+    <div className="grid grid-cols-[auto_1fr_1fr] gap-1 text-xs">
+      <div />
+      <div className="text-center text-stone-400 pb-1 text-[10px] font-medium">Predicted Anomaly</div>
+      <div className="text-center text-stone-400 pb-1 text-[10px] font-medium">Predicted Normal</div>
+      <div className="flex items-center text-stone-400 pr-2 text-[10px] font-medium">Actual Anomaly</div>
+      {cell(cm.true_positive, 'bg-emerald-500/15 text-emerald-400')}
+      {cell(cm.false_negative, 'bg-red-500/15 text-red-400')}
+      <div className="flex items-center text-stone-400 pr-2 text-[10px] font-medium">Actual Normal</div>
+      {cell(cm.false_positive, 'bg-orange-500/15 text-orange-400')}
+      {cell(cm.true_negative, 'bg-stone-500/15 text-stone-300')}
+    </div>
+  );
+}
 
 interface DataStatistics {
   total_records: number;
@@ -122,6 +189,12 @@ export default function SystemDetail() {
   const [downloading, setDownloading] = useState(false);
   const { stream, startStream } = useAnalysisStream();
 
+  // Ground truth evaluation
+  const [evaluation, setEvaluation] = useState<GroundTruthEvaluation | null>(null);
+  const [evalLoading, setEvalLoading] = useState(false);
+  const [showEvaluation, setShowEvaluation] = useState(false);
+  const [rowFilter, setRowFilter] = useState<string | null>(null);
+
   // Agent selection
   const [showAgentConfig, setShowAgentConfig] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<Array<{ name: string; perspective: string }>>([]);
@@ -144,6 +217,18 @@ export default function SystemDetail() {
         setSystem({ ...system, health_score: r.health_score as number });
       }
       setAnalyzing(false);
+
+      // Auto-run ground truth evaluation if this is a demo system
+      if (systemId && system?.is_demo) {
+        setEvalLoading(true);
+        demoApi.evaluate(systemId)
+          .then((evalResult) => {
+            setEvaluation(evalResult);
+            setShowEvaluation(true);
+          })
+          .catch(() => { /* ground truth not available */ })
+          .finally(() => setEvalLoading(false));
+      }
     }
   }, [stream.result, stream.active]);
 
@@ -198,6 +283,17 @@ export default function SystemDetail() {
           insights: saved.insights,
           ai_analysis: saved.ai_analysis,
         });
+        // If demo system with existing analysis, load ground truth evaluation
+        if ((data as System).is_demo && saved.anomalies && saved.anomalies.length > 0) {
+          setEvalLoading(true);
+          demoApi.evaluate(systemId)
+            .then((evalResult) => {
+              setEvaluation(evalResult);
+              setShowEvaluation(true);
+            })
+            .catch(() => { /* ground truth not available */ })
+            .finally(() => setEvalLoading(false));
+        }
       } else {
         setAnalysis({
           health_score: (data as System).health_score || null,
@@ -576,6 +672,195 @@ export default function SystemDetail() {
       {/* Anomaly Feedback Summary */}
       {systemId && analysis && analysis.anomalies.length > 0 && (
         <FeedbackSummaryBanner systemId={systemId} />
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          GROUND TRUTH EVALUATION PANEL (Kaggle TLM-UAV)
+          ════════════════════════════════════════════════════════════════ */}
+      {evalLoading && (
+        <div className="mb-6 glass-card p-4 border border-cyan-500/20 flex items-center gap-3">
+          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+          <span className="text-sm text-cyan-400">Evaluating against ground truth labels...</span>
+        </div>
+      )}
+
+      {evaluation && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowEvaluation(!showEvaluation)}
+            className={clsx(
+              'w-full flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-colors mb-3',
+              showEvaluation
+                ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
+                : 'glass-card text-stone-400 hover:text-cyan-400'
+            )}
+          >
+            <Target className="w-4 h-4" />
+            Ground Truth Evaluation — Kaggle TLM:UAV Dataset
+            <span className="ml-auto text-xs tabular-nums">
+              Accuracy {(evaluation.evaluation.accuracy * 100).toFixed(1)}% | F1 {(evaluation.evaluation.f1_score * 100).toFixed(1)}%
+            </span>
+          </button>
+
+          {showEvaluation && (
+            <div className="space-y-4 animate-fade-in">
+              {/* Metrics Banner */}
+              <div className="glass-card p-5 border border-cyan-500/20">
+                <div className="flex items-center gap-2 mb-4">
+                  <Shield className="w-4 h-4 text-cyan-400" />
+                  <h3 className="text-sm font-semibold text-cyan-400">Detection Metrics</h3>
+                  <span className="ml-auto text-[10px] text-stone-400">
+                    {evaluation.summary.total_records.toLocaleString()} records
+                    ({evaluation.summary.total_gt_anomalous.toLocaleString()} anomalous,
+                    {' '}{evaluation.summary.total_gt_normal.toLocaleString()} normal)
+                  </span>
+                </div>
+
+                {/* Key Metrics */}
+                <div className="grid grid-cols-5 gap-3 mb-5">
+                  {[
+                    { label: 'Accuracy', value: evaluation.evaluation.accuracy, color: 'text-white' },
+                    { label: 'Precision', value: evaluation.evaluation.precision, color: 'text-emerald-400' },
+                    { label: 'Recall', value: evaluation.evaluation.recall, color: 'text-blue-400' },
+                    { label: 'F1 Score', value: evaluation.evaluation.f1_score, color: 'text-purple-400' },
+                    { label: 'AUC-ROC', value: evaluation.evaluation.auc_roc, color: 'text-cyan-400' },
+                  ].map((m) => (
+                    <div key={m.label} className="bg-stone-800/50 rounded-xl p-3 text-center">
+                      <div className={clsx('text-xl font-bold tabular-nums', m.color)}>
+                        {(m.value * 100).toFixed(1)}%
+                      </div>
+                      <div className="text-[10px] text-stone-400 mt-0.5">{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ROC + Confusion Matrix side by side */}
+                <div className="grid grid-cols-2 gap-5">
+                  <div>
+                    <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-2">ROC Curve</h4>
+                    <RocCurve points={evaluation.roc_curve} auc={evaluation.evaluation.auc_roc} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-2">Confusion Matrix</h4>
+                    <ConfusionMatrix cm={evaluation.confusion_matrix} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Per-Fault-Type Breakdown */}
+              <div className="glass-card p-5 border border-cyan-500/10">
+                <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+                  <Target className="w-3.5 h-3.5 text-cyan-400" />
+                  Per-Fault-Type Detection Rate
+                </h3>
+                <div className="grid grid-cols-4 gap-3">
+                  {Object.entries(evaluation.fault_type_breakdown).map(([fault, stats]) => (
+                    <div key={fault} className="bg-stone-800/50 rounded-xl p-3">
+                      <div className="text-xs font-medium text-stone-200 mb-2 capitalize">
+                        {fault.replace(/_/g, ' ')}
+                      </div>
+                      <div className="flex items-end gap-2 mb-1.5">
+                        <span className="text-lg font-bold text-white tabular-nums">
+                          {(stats.recall * 100).toFixed(0)}%
+                        </span>
+                        <span className="text-[10px] text-stone-400 mb-0.5">recall</span>
+                      </div>
+                      <div className="w-full bg-stone-700/50 rounded-full h-2 mb-1">
+                        <div
+                          className={clsx(
+                            'h-2 rounded-full transition-all',
+                            stats.recall >= 0.8 ? 'bg-emerald-500' : stats.recall >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'
+                          )}
+                          style={{ width: `${stats.recall * 100}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-stone-400">
+                        <span className="text-emerald-400">{stats.detected} detected</span>
+                        <span className="text-red-400">{stats.missed} missed</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Per-Row Sample Table */}
+              <div className="glass-card p-5 border border-cyan-500/10">
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                    Row-Level Classification (sampled)
+                  </h3>
+                  <div className="flex gap-1.5 ml-auto">
+                    {[
+                      { key: null as string | null, label: 'All' },
+                      { key: 'true_positive', label: 'TP' },
+                      { key: 'false_negative', label: 'FN' },
+                      { key: 'false_positive', label: 'FP' },
+                    ].map((f) => (
+                      <button
+                        key={f.key ?? 'all'}
+                        onClick={() => setRowFilter(f.key)}
+                        className={clsx(
+                          'px-2 py-1 rounded-lg text-[10px] font-medium transition-colors',
+                          rowFilter === f.key
+                            ? 'bg-cyan-500/15 text-cyan-400'
+                            : 'text-stone-400 hover:text-stone-200 hover:bg-stone-700/50'
+                        )}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="max-h-[300px] overflow-y-auto rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-stone-800 z-10">
+                      <tr className="text-stone-400 text-left">
+                        <th className="px-3 py-2 font-medium">Row</th>
+                        <th className="px-3 py-2 font-medium">Ground Truth</th>
+                        <th className="px-3 py-2 font-medium">Detected?</th>
+                        <th className="px-3 py-2 font-medium">Classification</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-700/30">
+                      {(rowFilter
+                        ? evaluation.per_row_sample.filter((r) => r.classification === rowFilter)
+                        : evaluation.per_row_sample
+                      ).map((row) => {
+                        const cls = CLASSIFICATION_COLORS[row.classification] || CLASSIFICATION_COLORS.true_negative;
+                        return (
+                          <tr key={row.row_index} className={clsx(cls.bg, 'transition-colors')}>
+                            <td className="px-3 py-1.5 tabular-nums text-stone-300 font-mono">#{row.row_index}</td>
+                            <td className="px-3 py-1.5">
+                              <span className={clsx(
+                                'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                                row.ground_truth_label === 0 ? 'bg-stone-600/50 text-stone-300' : 'bg-amber-500/15 text-amber-400'
+                              )}>
+                                {row.ground_truth_fault}
+                              </span>
+                            </td>
+                            <td className="px-3 py-1.5">
+                              {row.detected
+                                ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                : <X className="w-3.5 h-3.5 text-stone-500" />
+                              }
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium border', cls.text, cls.border)}>
+                                {cls.label}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-6">
