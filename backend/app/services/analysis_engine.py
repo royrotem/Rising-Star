@@ -49,6 +49,7 @@ class Anomaly:
     possible_causes: List[str] = field(default_factory=list)
     recommendations: List[Dict[str, str]] = field(default_factory=list)
     impact_score: float = 0.0
+    row_indices: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -65,6 +66,7 @@ class AnalysisResult:
     summary: str
     recommendations: List[Dict]
     analyzed_at: str
+    row_predictions: List[int] = field(default_factory=list)
 
 
 class AnalysisEngine:
@@ -284,6 +286,9 @@ class AnalysisEngine:
         # Generate recommendations
         recommendations = self._generate_recommendations(anomalies, engineering_margins, domain)
 
+        # Per-row anomaly classification — union of all detector flags
+        row_predictions = self._classify_rows(df, anomalies, domain)
+
         return AnalysisResult(
             system_id=system_id,
             system_type=system_type,
@@ -296,6 +301,7 @@ class AnalysisEngine:
             trend_analysis=trend_analysis,
             summary=summary,
             recommendations=recommendations,
+            row_predictions=row_predictions,
             analyzed_at=datetime.utcnow().isoformat(),
         )
 
@@ -329,6 +335,9 @@ class AnalysisEngine:
                     outlier_values = series[outlier_mask]
                     severity = Severity[severity_name.upper()]
 
+                    # Map from series index back to original DataFrame row positions
+                    outlier_row_indices = [int(idx) for idx in series.index[outlier_mask]]
+
                     anomaly = Anomaly(
                         id=f"stat_{col}_{severity_name}_{datetime.utcnow().timestamp()}",
                         anomaly_type=AnomalyType.STATISTICAL_OUTLIER,
@@ -340,6 +349,7 @@ class AnalysisEngine:
                         expected_range=(float(mean - 2*std), float(mean + 2*std)),
                         confidence=min(0.95, 0.7 + (threshold / 10)),
                         impact_score=min(100, outlier_count / len(series) * 100 * threshold),
+                        row_indices=outlier_row_indices,
                     )
                     anomalies.append(anomaly)
                     break  # Only report highest severity
@@ -371,6 +381,8 @@ class AnalysisEngine:
                         max_value = series.max()
                         pct_over = ((max_value - max_val) / max_val) * 100
                         severity = self._get_severity_from_percentage(pct_over)
+                        above_mask = series > max_val
+                        above_rows = [int(idx) for idx in series.index[above_mask]]
 
                         anomalies.append(Anomaly(
                             id=f"thresh_high_{col}_{datetime.utcnow().timestamp()}",
@@ -383,12 +395,15 @@ class AnalysisEngine:
                             expected_range=(min_val, max_val),
                             confidence=0.9,
                             impact_score=min(100, pct_over * 2),
+                            row_indices=above_rows,
                         ))
 
                     if below_min > 0:
                         min_value = series.min()
                         pct_under = ((min_val - min_value) / min_val) * 100 if min_val != 0 else 50
                         severity = self._get_severity_from_percentage(pct_under)
+                        below_mask = series < min_val
+                        below_rows = [int(idx) for idx in series.index[below_mask]]
 
                         anomalies.append(Anomaly(
                             id=f"thresh_low_{col}_{datetime.utcnow().timestamp()}",
@@ -401,6 +416,7 @@ class AnalysisEngine:
                             expected_range=(min_val, max_val),
                             confidence=0.9,
                             impact_score=min(100, pct_under * 2),
+                            row_indices=below_rows,
                         ))
                     break
 
@@ -567,6 +583,9 @@ class AnalysisEngine:
                     is_critical = any(p in col.lower() for p in critical_params)
 
                     if is_critical:
+                        jump_mask = diff > jump_threshold
+                        jump_rows = [int(idx) for idx in diff.index[jump_mask]]
+
                         anomalies.append(Anomaly(
                             id=f"jump_{col}_{datetime.utcnow().timestamp()}",
                             anomaly_type=AnomalyType.PATTERN_ANOMALY,
@@ -577,6 +596,7 @@ class AnalysisEngine:
                             value={"jump_count": int(jumps), "threshold": float(jump_threshold)},
                             confidence=0.75,
                             impact_score=min(100, jumps * 20),
+                            row_indices=jump_rows,
                         ))
 
             # Detect stuck values (sensor failure indicator)
@@ -623,6 +643,9 @@ class AnalysisEngine:
             accel_outliers = (second_derivative.abs() > 3 * second_derivative.std()).sum()
 
             if accel_outliers > len(series) * 0.02:  # More than 2% accelerating changes
+                accel_mask = second_derivative.abs() > 3 * second_derivative.std()
+                accel_rows = [int(idx) for idx in second_derivative.index[accel_mask]]
+
                 anomalies.append(Anomaly(
                     id=f"accel_{col}_{datetime.utcnow().timestamp()}",
                     anomaly_type=AnomalyType.RATE_OF_CHANGE,
@@ -633,9 +656,90 @@ class AnalysisEngine:
                     value={"acceleration_events": int(accel_outliers)},
                     confidence=0.7,
                     impact_score=min(100, accel_outliers / len(series) * 500),
+                    row_indices=accel_rows,
                 ))
 
         return anomalies
+
+    def _classify_rows(
+        self,
+        df: pd.DataFrame,
+        anomalies: List[Anomaly],
+        domain: Dict,
+    ) -> List[int]:
+        """Classify every row as normal (0) or anomaly (1).
+
+        Strategy:
+        1. Collect explicit row_indices from all detectors (union).
+        2. For each numeric column, compute a composite outlier score using
+           z-score, IQR, and domain thresholds, then flag rows that exceed
+           the combined threshold.
+        The result is a per-row binary prediction list parallel to the DataFrame.
+        """
+        n = len(df)
+        # Accumulate per-row anomaly scores (higher = more anomalous)
+        row_scores = np.zeros(n, dtype=float)
+
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        normal_ranges = domain.get("normal_ranges", {})
+
+        for col in numeric_cols:
+            series = df[col]
+            if series.isna().all():
+                continue
+            mean = series.mean()
+            std = series.std()
+
+            # Z-score contribution
+            if std > 0:
+                z = np.abs((series.fillna(mean) - mean) / std)
+                # Rows with z > 2 get a contribution proportional to severity
+                z_contrib = np.where(z > 2, (z - 2) / 2, 0.0)
+                row_scores += z_contrib
+
+            # IQR contribution
+            q1 = series.quantile(0.25)
+            q3 = series.quantile(0.75)
+            iqr = q3 - q1
+            if iqr > 0:
+                lower = q1 - 1.5 * iqr
+                upper = q3 + 1.5 * iqr
+                iqr_outlier = ((series < lower) | (series > upper)).astype(float)
+                row_scores += iqr_outlier
+
+            # Domain threshold contribution
+            col_lower = col.lower()
+            for param, (min_val, max_val) in normal_ranges.items():
+                if param in col_lower:
+                    breach = ((series < min_val) | (series > max_val)).astype(float)
+                    row_scores += breach * 2  # domain knowledge breach weighted higher
+                    break
+
+        # Also incorporate explicit row_indices from detected anomalies
+        for anom in anomalies:
+            weight = {"critical": 3, "high": 2, "medium": 1, "low": 0.5}.get(
+                anom.severity.value if hasattr(anom.severity, "value") else str(anom.severity).lower(),
+                1,
+            )
+            for idx in anom.row_indices:
+                if 0 <= idx < n:
+                    row_scores[idx] += weight
+
+        # Threshold: classify as anomaly if score exceeds adaptive threshold
+        # Use a percentile-based threshold to avoid labeling everything as anomaly
+        if row_scores.max() > 0:
+            # The threshold is the 70th percentile of non-zero scores,
+            # with a minimum of 2.0 to avoid over-flagging
+            nonzero = row_scores[row_scores > 0]
+            if len(nonzero) > 0:
+                threshold = max(2.0, np.percentile(nonzero, 70))
+            else:
+                threshold = 2.0
+            predictions = (row_scores >= threshold).astype(int).tolist()
+        else:
+            predictions = [0] * n
+
+        return predictions
 
     def _enrich_anomaly_explanation(self, anomaly: Anomaly, system_type: str, domain: Dict, df: pd.DataFrame):
         """Generate natural language explanation and possible causes for an anomaly."""

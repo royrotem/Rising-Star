@@ -99,6 +99,7 @@ def anomaly_to_dict(a) -> Dict[str, Any]:
         "confidence": a.confidence,
         "value": a.value,
         "expected_range": a.expected_range,
+        "row_indices": a.row_indices if hasattr(a, "row_indices") else [],
         "contributing_agents": ["Rule Engine"],
         "web_references": [],
         "agent_perspectives": [],

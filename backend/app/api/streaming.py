@@ -292,6 +292,7 @@ async def analyze_system_stream(
                     "total_findings_raw": ai_result.get("total_findings_raw", 0) if ai_result else 0,
                     "total_anomalies_unified": ai_result.get("total_anomalies_unified", 0) if ai_result else 0,
                 },
+                "row_predictions": result.row_predictions,
             }
 
             # Update system with analysis results

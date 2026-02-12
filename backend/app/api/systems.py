@@ -1099,6 +1099,7 @@ async def analyze_system(system_id: str, request: AnalysisRequest):
             "total_findings_raw": ai_result.get("total_findings_raw", 0) if ai_result else 0,
             "total_anomalies_unified": ai_result.get("total_anomalies_unified", 0) if ai_result else 0,
         },
+        "row_predictions": result.row_predictions,
     }
 
     # Update system with analysis results
@@ -1494,20 +1495,20 @@ async def create_demo_system():
 @router.post("/demo/create-uav")
 async def create_demo_uav_system():
     """
-    Create a fully-populated demo UAV system with TLM-UAV telemetry data.
+    Create a fully-populated demo UAV system with REAL TLM-UAV Kaggle data.
 
     This endpoint creates a complete demo system with:
-    - 1000 records of synthetic UAV flight telemetry (GPS, IMU, RATE, VIBE)
-    - Four injected fault types (GPS, accelerometer, engine, RC system)
-    - Pre-discovered schema with engineering context
+    - 12,253 records of REAL UAV flight telemetry from Kaggle (ATT, MAG, IMU)
+    - Four fault types from the original TLM dataset (labels NOT sent to analysis)
+    - Ground truth stored separately for post-analysis comparison
     - Ready for immediate analysis demonstration
 
-    Based on the TLM:UAV Anomaly Detection Dataset methodology.
+    Based on the TLM:UAV Anomaly Detection Dataset (Kaggle).
     """
     from ..services.tlm_uav_generator import generate_full_tlm_uav_package
 
     logger.info("=" * 60)
-    logger.info("DEMO MODE: Creating TLM-UAV demo system...")
+    logger.info("DEMO MODE: Creating TLM-UAV demo system (REAL Kaggle data)...")
 
     demo = generate_full_tlm_uav_package()
 
@@ -1517,13 +1518,15 @@ async def create_demo_uav_system():
         "id": system_id,
         "name": demo["metadata"]["system_name"],
         "system_type": demo["metadata"]["system_type"],
-        "serial_number": "DEMO-UAV-001",
-        "model": "Quadcopter-SITL",
+        "serial_number": "DEMO-UAV-KAGGLE",
+        "model": "Quadcopter-SITL (Kaggle TLM)",
         "metadata": {
-            "manufacturer": "UAIE Demo (ArduPilot SITL)",
+            "manufacturer": "ArduPilot SITL (Yang et al., 2023)",
             "description": demo["metadata"]["description"],
             "is_demo": True,
+            "is_real_data": True,
             "dataset_reference": demo["metadata"]["dataset_reference"],
+            "has_ground_truth": True,
         },
         "status": "data_ingested",
         "health_score": 100.0,
@@ -1536,41 +1539,281 @@ async def create_demo_uav_system():
     created_system = data_store.create_system(system_data)
     logger.info("DEMO-UAV: Created system %s", system_id)
 
+    # Store records WITHOUT labels — labels are never sent to the analysis engine
     source_id = str(uuid.uuid4())
     data_store.store_ingested_data(
         system_id=system_id,
         source_id=source_id,
-        source_name="uav_tlm_telemetry.csv",
-        records=demo["records"],
+        source_name="Fusion_Data.csv (Kaggle TLM:UAV)",
+        records=demo["records"],  # No labels in these records
         discovered_schema={
             "fields": demo["discovered_fields"],
             "relationships": demo["relationships"],
         },
         metadata={
-            "filename": "uav_tlm_telemetry.csv",
+            "filename": "Fusion_Data.csv",
             "demo_mode": True,
+            "is_real_data": True,
             "anomalies_injected": demo["metadata"]["demo_anomalies_injected"],
             "fault_types": demo["metadata"]["anomaly_types"],
         },
     )
-    logger.info("DEMO-UAV: Stored %d records", len(demo["records"]))
+    logger.info("DEMO-UAV: Stored %d records (labels stripped)", len(demo["records"]))
+
+    # Store ground truth SEPARATELY (never exposed to analysis engine)
+    gt = demo["ground_truth"]
+    _demo_ground_truth_store[system_id] = gt
+    logger.info(
+        "DEMO-UAV: Ground truth stored separately — %d anomalous / %d total",
+        gt["total_anomalous"], gt["total_records"],
+    )
 
     data_store.update_system(system_id, {
         "status": "data_ingested",
     })
 
-    logger.info("DEMO-UAV: System ready for analysis")
+    logger.info("DEMO-UAV: System ready for analysis (ground truth hidden)")
     logger.info("=" * 60)
 
     return {
         "status": "success",
-        "message": "TLM-UAV demo system created successfully. Ready for analysis!",
+        "message": "TLM-UAV demo system created with REAL Kaggle data. Ground truth stored separately. Ready for analysis!",
         "system_id": system_id,
         "system_name": demo["metadata"]["system_name"],
         "record_count": len(demo["records"]),
         "field_count": len(demo["discovered_fields"]),
         "anomaly_types_injected": demo["metadata"]["anomaly_types"],
+        "has_ground_truth": True,
+        "ground_truth_summary": {
+            "total_records": gt["total_records"],
+            "total_anomalous": gt["total_anomalous"],
+            "total_normal": gt["total_normal"],
+            "distribution": gt["distribution"],
+        },
         "recommendation": demo["recommendation"],
+    }
+
+
+# ── Ground truth store (in-memory, per demo session) ────────────────────
+_demo_ground_truth_store: dict = {}
+
+
+@router.get("/demo/{system_id}/ground-truth")
+async def get_demo_ground_truth(system_id: str):
+    """
+    Return ground-truth labels for a demo UAV system.
+    Only available for demo systems with Kaggle data.
+    """
+    if system_id not in _demo_ground_truth_store:
+        # Try to reload from generator
+        from ..services.tlm_uav_generator import get_ground_truth
+        system = data_store.get_system(system_id)
+        if not system or not system.get("is_demo"):
+            raise HTTPException(status_code=404, detail="Ground truth not available for this system")
+        gt = get_ground_truth()
+        _demo_ground_truth_store[system_id] = gt
+
+    gt = _demo_ground_truth_store[system_id]
+    return {
+        "system_id": system_id,
+        "label_map": gt["label_map"],
+        "distribution": gt["distribution"],
+        "total_records": gt["total_records"],
+        "total_anomalous": gt["total_anomalous"],
+        "total_normal": gt["total_normal"],
+        "labels": gt["labels"],
+    }
+
+
+@router.post("/demo/{system_id}/evaluate")
+async def evaluate_against_ground_truth(system_id: str):
+    """
+    Compare analysis results against ground truth labels.
+
+    Returns per-row classification results, confusion matrix, and ROC data.
+    The analysis engine never sees the labels — this is a post-hoc evaluation.
+    """
+    import math
+
+    # Get ground truth
+    if system_id not in _demo_ground_truth_store:
+        from ..services.tlm_uav_generator import get_ground_truth
+        system = data_store.get_system(system_id)
+        if not system or not system.get("is_demo"):
+            raise HTTPException(status_code=404, detail="Ground truth not available")
+        gt = get_ground_truth()
+        _demo_ground_truth_store[system_id] = gt
+
+    gt = _demo_ground_truth_store[system_id]
+    labels = gt["labels"]
+    label_map = gt["label_map"]
+
+    # Get analysis results
+    analysis = load_saved_analysis(system_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail="No analysis results found. Run analysis first.")
+
+    anomalies = analysis.get("anomalies", [])
+
+    # row_predictions is computed during analysis (blind — no GT access).
+    # Each entry is 0 (normal) or 1 (anomaly), parallel to the data rows.
+    row_predictions = analysis.get("row_predictions", [])
+    if not row_predictions:
+        raise HTTPException(
+            status_code=400,
+            detail="Analysis does not contain row_predictions. Please re-run analysis.",
+        )
+
+    # Build anomaly detail summary for the response
+    anomaly_details = []
+    for anom in anomalies:
+        anomaly_details.append({
+            "id": anom.get("id", ""),
+            "title": anom.get("title", ""),
+            "severity": anom.get("severity", "unknown"),
+            "type": anom.get("type", ""),
+            "affected_fields": anom.get("affected_fields", []),
+            "confidence": anom.get("confidence", 0),
+            "impact_score": anom.get("impact_score", 0),
+            "detected_rows": len(anom.get("row_indices", [])),
+        })
+
+    # ── Build per-row classification ────────────────────────────────────
+    total = min(len(labels), len(row_predictions))
+    tp = 0  # True positive: GT=anomaly, Predicted=anomaly
+    fp = 0  # False positive: GT=normal, Predicted=anomaly
+    fn = 0  # False negative: GT=anomaly, Predicted=normal (MISSED)
+    tn = 0  # True negative: GT=normal, Predicted=normal
+
+    per_row_results = []
+    # Sample every Nth row to keep response manageable (max ~500 rows in response)
+    sample_step = max(1, total // 500)
+
+    for i in range(total):
+        gt_label = labels[i]
+        gt_is_anomaly = gt_label != 0
+        predicted_anomaly = row_predictions[i] != 0
+
+        if gt_is_anomaly and predicted_anomaly:
+            tp += 1
+            classification = "true_positive"
+        elif gt_is_anomaly and not predicted_anomaly:
+            fn += 1
+            classification = "false_negative"
+        elif not gt_is_anomaly and predicted_anomaly:
+            fp += 1
+            classification = "false_positive"
+        else:
+            tn += 1
+            classification = "true_negative"
+
+        if i % sample_step == 0:
+            per_row_results.append({
+                "row_index": i,
+                "ground_truth_label": gt_label,
+                "ground_truth_fault": label_map.get(gt_label, "unknown"),
+                "predicted": predicted_anomaly,
+                "classification": classification,
+            })
+
+    # ── Metrics ─────────────────────────────────────────────────────────
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    accuracy = (tp + tn) / total if total > 0 else 0
+
+    # ── Per-fault-type breakdown ────────────────────────────────────────
+    fault_type_results = {}
+    for fault_label, fault_name in label_map.items():
+        if fault_label == 0:
+            continue
+        fault_rows = [i for i, l in enumerate(labels) if l == fault_label and i < total]
+        fault_detected = [i for i in fault_rows if row_predictions[i] != 0]
+        fault_missed = [i for i in fault_rows if row_predictions[i] == 0]
+        fault_type_results[fault_name] = {
+            "total": len(fault_rows),
+            "detected": len(fault_detected),
+            "missed": len(fault_missed),
+            "recall": len(fault_detected) / len(fault_rows) if fault_rows else 0,
+        }
+
+    # ── ROC curve data points ───────────────────────────────────────────
+    # Generate ROC-like curve using varying detection thresholds
+    # We simulate thresholds by using anomaly confidence scores
+    roc_points = [{"fpr": 0, "tpr": 0}]
+
+    # Sort anomalies by confidence descending
+    if anomalies:
+        confidences = sorted(
+            [a.get("confidence", 0.5) for a in anomalies],
+            reverse=True,
+        )
+        # Generate 10 threshold points
+        thresholds = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]
+        for threshold in thresholds:
+            # At this threshold, how many anomalies would be accepted?
+            accepted = [a for a in anomalies if a.get("confidence", 0.5) >= threshold]
+            accepted_frac = len(accepted) / len(anomalies) if anomalies else 0
+
+            # Scale tp/fp by the fraction of accepted anomalies
+            est_tp = tp * accepted_frac
+            est_fp = fp * accepted_frac
+            total_positive = tp + fn
+            total_negative = tn + fp
+
+            tpr = est_tp / total_positive if total_positive > 0 else 0
+            fpr = est_fp / total_negative if total_negative > 0 else 0
+
+            roc_points.append({"fpr": round(fpr, 4), "tpr": round(tpr, 4), "threshold": threshold})
+
+    roc_points.append({"fpr": 1, "tpr": 1})
+    # Deduplicate and sort by FPR
+    seen = set()
+    unique_roc = []
+    for pt in roc_points:
+        key = (pt["fpr"], pt["tpr"])
+        if key not in seen:
+            seen.add(key)
+            unique_roc.append(pt)
+    unique_roc.sort(key=lambda p: (p["fpr"], p["tpr"]))
+
+    # AUC approximation (trapezoidal)
+    auc = 0
+    for i in range(1, len(unique_roc)):
+        dx = unique_roc[i]["fpr"] - unique_roc[i - 1]["fpr"]
+        avg_y = (unique_roc[i]["tpr"] + unique_roc[i - 1]["tpr"]) / 2
+        auc += dx * avg_y
+
+    # ── Confusion matrix ────────────────────────────────────────────────
+    confusion_matrix = {
+        "true_positive": tp,
+        "false_positive": fp,
+        "false_negative": fn,
+        "true_negative": tn,
+    }
+
+    return {
+        "system_id": system_id,
+        "evaluation": {
+            "accuracy": round(accuracy, 4),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1_score": round(f1, 4),
+            "auc_roc": round(auc, 4),
+        },
+        "confusion_matrix": confusion_matrix,
+        "fault_type_breakdown": fault_type_results,
+        "roc_curve": unique_roc,
+        "per_row_sample": per_row_results,
+        "summary": {
+            "total_records": total,
+            "total_gt_anomalous": gt["total_anomalous"],
+            "total_gt_normal": gt["total_normal"],
+            "anomalies_detected_by_system": len(anomalies),
+            "rows_flagged_anomaly": sum(1 for p in row_predictions[:total] if p != 0),
+            "rows_flagged_normal": sum(1 for p in row_predictions[:total] if p == 0),
+        },
+        "anomaly_details": anomaly_details,
     }
 
 

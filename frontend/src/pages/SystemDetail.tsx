@@ -12,6 +12,7 @@ import {
   Download,
   Activity,
   Settings2,
+  Target,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { systemsApi } from '../services/api';
@@ -576,6 +577,27 @@ export default function SystemDetail() {
       {/* Anomaly Feedback Summary */}
       {systemId && analysis && analysis.anomalies.length > 0 && (
         <FeedbackSummaryBanner systemId={systemId} />
+      )}
+
+      {/* Ground Truth Evaluation — Navigate to dedicated page */}
+      {system?.is_demo && analysis && analysis.anomalies.length > 0 && (
+        <Link
+          to={`/systems/${systemId}/anomalies`}
+          className="block mb-6 glass-card p-5 hover:border-cyan-500/40 border border-cyan-500/20 transition-all group bg-cyan-500/5"
+        >
+          <div className="flex items-center gap-3">
+            <Target className="w-5 h-5 text-cyan-400" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-cyan-400 group-hover:text-cyan-300 transition-colors">
+                View Ground Truth Evaluation
+              </p>
+              <p className="text-xs text-stone-400 mt-0.5">
+                Compare detections vs Kaggle TLM-UAV labeled data — ROC curve, confusion matrix, per-fault breakdown, color-coded rows
+              </p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-cyan-500/50 group-hover:text-cyan-400 transition-colors" />
+          </div>
+        </Link>
       )}
 
       <div className="grid grid-cols-2 gap-6">
