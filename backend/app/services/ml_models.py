@@ -45,8 +45,8 @@ from ..core.config import settings
 
 def _get_models_dir() -> Path:
     if settings.MODELS_DIR:
-        return Path(settings.MODELS_DIR)
-    return Path(__file__).parent.parent.parent / "models"
+        return Path(settings.MODELS_DIR).resolve()
+    return (Path(__file__).parent.parent.parent / "models").resolve()
 
 
 MODELS_DIR = _get_models_dir()

@@ -24,10 +24,13 @@ Usage
     python evaluate_models.py --models-dir ./models # custom models path
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Dict, Optional
 
 import joblib
 import numpy as np
@@ -92,7 +95,7 @@ def print_metrics(name: str, y_true: np.ndarray, y_pred: np.ndarray) -> None:
 # ── model runners ─────────────────────────────────────────────────
 
 
-def run_xgboost(models_dir: Path, X: pd.DataFrame) -> np.ndarray | None:
+def run_xgboost(models_dir: Path, X: pd.DataFrame) -> Optional[np.ndarray]:
     """Return binary predictions (0/1) or None if unavailable."""
     try:
         import xgboost as xgb
@@ -129,7 +132,7 @@ def run_xgboost(models_dir: Path, X: pd.DataFrame) -> np.ndarray | None:
     return preds
 
 
-def run_cnn_autoencoder(models_dir: Path, X: pd.DataFrame) -> np.ndarray | None:
+def run_cnn_autoencoder(models_dir: Path, X: pd.DataFrame) -> Optional[np.ndarray]:
     """Return binary predictions (0/1) or None if unavailable."""
     try:
         import torch
@@ -188,7 +191,7 @@ def run_cnn_autoencoder(models_dir: Path, X: pd.DataFrame) -> np.ndarray | None:
     return preds
 
 
-def run_logreg(models_dir: Path, X: pd.DataFrame) -> np.ndarray | None:
+def run_logreg(models_dir: Path, X: pd.DataFrame) -> Optional[np.ndarray]:
     """Return binary predictions (0/1) or None if unavailable."""
     model_path = models_dir / "logreg_model.joblib"
     scaler_path = models_dir / "logreg_scaler.joblib"
@@ -260,7 +263,7 @@ def main() -> None:
         ("Logistic Regression", run_logreg),
     ]
 
-    all_preds: dict[str, np.ndarray] = {}
+    all_preds: Dict[str, np.ndarray] = {}
 
     for name, runner_fn in runners:
         print(f"Running {name}...")
