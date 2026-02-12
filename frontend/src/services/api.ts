@@ -187,7 +187,7 @@ export interface GroundTruthEvaluation {
 
 export const demoApi = {
   evaluate: async (systemId: string): Promise<GroundTruthEvaluation> => {
-    const { data } = await api.post(`/demo/${systemId}/evaluate`);
+    const { data } = await api.post(`/systems/demo/${systemId}/evaluate`);
     return data;
   },
 
@@ -200,7 +200,7 @@ export const demoApi = {
     total_normal: number;
     labels: number[];
   }> => {
-    const { data } = await api.get(`/demo/${systemId}/ground-truth`);
+    const { data } = await api.get(`/systems/demo/${systemId}/ground-truth`);
     return data;
   },
 };

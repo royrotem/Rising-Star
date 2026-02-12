@@ -12,6 +12,8 @@ export interface System {
   created_at: string;
   anomaly_count?: number;
   last_analysis_at?: string;
+  is_demo?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 export interface FieldConfirmation {

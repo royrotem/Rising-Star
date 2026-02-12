@@ -187,7 +187,11 @@ export default function AnomalyExplorer() {
       }
 
       // Auto-run evaluation if this is a demo system with ground truth
-      if (sys?.metadata?.has_ground_truth || sys?.metadata?.is_real_data || sys?.is_demo) {
+      const isDemo = sys?.is_demo
+        || sys?.metadata?.has_ground_truth
+        || sys?.metadata?.is_real_data
+        || systemId.startsWith('demo-uav-');
+      if (isDemo) {
         setEvalLoading(true);
         try {
           const evalResult = await demoApi.evaluate(systemId);
