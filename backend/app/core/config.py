@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     ANOMALY_THRESHOLD: float = 0.95
     DETECTION_WINDOW_HOURS: int = 24
 
+    # ML Models
+    MODELS_DIR: Optional[str] = None  # Defaults to backend/models/ if unset
+
     class Config:
         env_file = ".env"
         case_sensitive = True
