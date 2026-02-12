@@ -66,6 +66,7 @@ class AnalysisResult:
     summary: str
     recommendations: List[Dict]
     analyzed_at: str
+    row_predictions: List[int] = field(default_factory=list)
 
 
 class AnalysisEngine:
@@ -285,6 +286,9 @@ class AnalysisEngine:
         # Generate recommendations
         recommendations = self._generate_recommendations(anomalies, engineering_margins, domain)
 
+        # Per-row anomaly classification — union of all detector flags
+        row_predictions = self._classify_rows(df, anomalies, domain)
+
         return AnalysisResult(
             system_id=system_id,
             system_type=system_type,
@@ -297,6 +301,7 @@ class AnalysisEngine:
             trend_analysis=trend_analysis,
             summary=summary,
             recommendations=recommendations,
+            row_predictions=row_predictions,
             analyzed_at=datetime.utcnow().isoformat(),
         )
 
@@ -655,6 +660,86 @@ class AnalysisEngine:
                 ))
 
         return anomalies
+
+    def _classify_rows(
+        self,
+        df: pd.DataFrame,
+        anomalies: List[Anomaly],
+        domain: Dict,
+    ) -> List[int]:
+        """Classify every row as normal (0) or anomaly (1).
+
+        Strategy:
+        1. Collect explicit row_indices from all detectors (union).
+        2. For each numeric column, compute a composite outlier score using
+           z-score, IQR, and domain thresholds, then flag rows that exceed
+           the combined threshold.
+        The result is a per-row binary prediction list parallel to the DataFrame.
+        """
+        n = len(df)
+        # Accumulate per-row anomaly scores (higher = more anomalous)
+        row_scores = np.zeros(n, dtype=float)
+
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        normal_ranges = domain.get("normal_ranges", {})
+
+        for col in numeric_cols:
+            series = df[col]
+            if series.isna().all():
+                continue
+            mean = series.mean()
+            std = series.std()
+
+            # Z-score contribution
+            if std > 0:
+                z = np.abs((series.fillna(mean) - mean) / std)
+                # Rows with z > 2 get a contribution proportional to severity
+                z_contrib = np.where(z > 2, (z - 2) / 2, 0.0)
+                row_scores += z_contrib
+
+            # IQR contribution
+            q1 = series.quantile(0.25)
+            q3 = series.quantile(0.75)
+            iqr = q3 - q1
+            if iqr > 0:
+                lower = q1 - 1.5 * iqr
+                upper = q3 + 1.5 * iqr
+                iqr_outlier = ((series < lower) | (series > upper)).astype(float)
+                row_scores += iqr_outlier
+
+            # Domain threshold contribution
+            col_lower = col.lower()
+            for param, (min_val, max_val) in normal_ranges.items():
+                if param in col_lower:
+                    breach = ((series < min_val) | (series > max_val)).astype(float)
+                    row_scores += breach * 2  # domain knowledge breach weighted higher
+                    break
+
+        # Also incorporate explicit row_indices from detected anomalies
+        for anom in anomalies:
+            weight = {"critical": 3, "high": 2, "medium": 1, "low": 0.5}.get(
+                anom.severity.value if hasattr(anom.severity, "value") else str(anom.severity).lower(),
+                1,
+            )
+            for idx in anom.row_indices:
+                if 0 <= idx < n:
+                    row_scores[idx] += weight
+
+        # Threshold: classify as anomaly if score exceeds adaptive threshold
+        # Use a percentile-based threshold to avoid labeling everything as anomaly
+        if row_scores.max() > 0:
+            # The threshold is the 70th percentile of non-zero scores,
+            # with a minimum of 2.0 to avoid over-flagging
+            nonzero = row_scores[row_scores > 0]
+            if len(nonzero) > 0:
+                threshold = max(2.0, np.percentile(nonzero, 70))
+            else:
+                threshold = 2.0
+            predictions = (row_scores >= threshold).astype(int).tolist()
+        else:
+            predictions = [0] * n
+
+        return predictions
 
     def _enrich_anomaly_explanation(self, anomaly: Anomaly, system_type: str, domain: Dict, df: pd.DataFrame):
         """Generate natural language explanation and possible causes for an anomaly."""

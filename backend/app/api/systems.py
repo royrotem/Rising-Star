@@ -1099,6 +1099,7 @@ async def analyze_system(system_id: str, request: AnalysisRequest):
             "total_findings_raw": ai_result.get("total_findings_raw", 0) if ai_result else 0,
             "total_anomalies_unified": ai_result.get("total_anomalies_unified", 0) if ai_result else 0,
         },
+        "row_predictions": result.row_predictions,
     }
 
     # Update system with analysis results
@@ -1654,13 +1655,19 @@ async def evaluate_against_ground_truth(system_id: str):
 
     anomalies = analysis.get("anomalies", [])
 
-    # Build a set of row indices that the analysis engine flagged as anomalous
-    # Uses explicit row_indices from each detector — no ground-truth leakage
-    detected_row_set = set()
-    anomaly_details = []
+    # row_predictions is computed during analysis (blind — no GT access).
+    # Each entry is 0 (normal) or 1 (anomaly), parallel to the data rows.
+    row_predictions = analysis.get("row_predictions", [])
+    if not row_predictions:
+        raise HTTPException(
+            status_code=400,
+            detail="Analysis does not contain row_predictions. Please re-run analysis.",
+        )
 
+    # Build anomaly detail summary for the response
+    anomaly_details = []
     for anom in anomalies:
-        detail = {
+        anomaly_details.append({
             "id": anom.get("id", ""),
             "title": anom.get("title", ""),
             "severity": anom.get("severity", "unknown"),
@@ -1668,23 +1675,15 @@ async def evaluate_against_ground_truth(system_id: str):
             "affected_fields": anom.get("affected_fields", []),
             "confidence": anom.get("confidence", 0),
             "impact_score": anom.get("impact_score", 0),
-        }
-
-        # Use explicit row-level predictions from the analysis engine.
-        # row_indices contains the actual DataFrame rows the detector flagged,
-        # without any reference to ground truth labels.
-        row_indices = anom.get("row_indices", [])
-        detected_row_set.update(row_indices)
-        detail["detected_rows"] = len(row_indices)
-
-        anomaly_details.append(detail)
+            "detected_rows": len(anom.get("row_indices", [])),
+        })
 
     # ── Build per-row classification ────────────────────────────────────
-    total = len(labels)
-    tp = 0  # True positive: GT=anomaly, Detected=anomaly
-    fp = 0  # False positive: GT=normal, Detected=anomaly
-    fn = 0  # False negative: GT=anomaly, Detected=normal (MISSED)
-    tn = 0  # True negative: GT=normal, Detected=normal
+    total = min(len(labels), len(row_predictions))
+    tp = 0  # True positive: GT=anomaly, Predicted=anomaly
+    fp = 0  # False positive: GT=normal, Predicted=anomaly
+    fn = 0  # False negative: GT=anomaly, Predicted=normal (MISSED)
+    tn = 0  # True negative: GT=normal, Predicted=normal
 
     per_row_results = []
     # Sample every Nth row to keep response manageable (max ~500 rows in response)
@@ -1693,15 +1692,15 @@ async def evaluate_against_ground_truth(system_id: str):
     for i in range(total):
         gt_label = labels[i]
         gt_is_anomaly = gt_label != 0
-        detected = i in detected_row_set
+        predicted_anomaly = row_predictions[i] != 0
 
-        if gt_is_anomaly and detected:
+        if gt_is_anomaly and predicted_anomaly:
             tp += 1
             classification = "true_positive"
-        elif gt_is_anomaly and not detected:
+        elif gt_is_anomaly and not predicted_anomaly:
             fn += 1
             classification = "false_negative"
-        elif not gt_is_anomaly and detected:
+        elif not gt_is_anomaly and predicted_anomaly:
             fp += 1
             classification = "false_positive"
         else:
@@ -1713,7 +1712,7 @@ async def evaluate_against_ground_truth(system_id: str):
                 "row_index": i,
                 "ground_truth_label": gt_label,
                 "ground_truth_fault": label_map.get(gt_label, "unknown"),
-                "detected": detected,
+                "predicted": predicted_anomaly,
                 "classification": classification,
             })
 
@@ -1728,9 +1727,9 @@ async def evaluate_against_ground_truth(system_id: str):
     for fault_label, fault_name in label_map.items():
         if fault_label == 0:
             continue
-        fault_rows = [i for i, l in enumerate(labels) if l == fault_label]
-        fault_detected = [i for i in fault_rows if i in detected_row_set]
-        fault_missed = [i for i in fault_rows if i not in detected_row_set]
+        fault_rows = [i for i, l in enumerate(labels) if l == fault_label and i < total]
+        fault_detected = [i for i in fault_rows if row_predictions[i] != 0]
+        fault_missed = [i for i in fault_rows if row_predictions[i] == 0]
         fault_type_results[fault_name] = {
             "total": len(fault_rows),
             "detected": len(fault_detected),
@@ -1811,7 +1810,8 @@ async def evaluate_against_ground_truth(system_id: str):
             "total_gt_anomalous": gt["total_anomalous"],
             "total_gt_normal": gt["total_normal"],
             "anomalies_detected_by_system": len(anomalies),
-            "rows_flagged": len(detected_row_set),
+            "rows_flagged_anomaly": sum(1 for p in row_predictions[:total] if p != 0),
+            "rows_flagged_normal": sum(1 for p in row_predictions[:total] if p == 0),
         },
         "anomaly_details": anomaly_details,
     }
