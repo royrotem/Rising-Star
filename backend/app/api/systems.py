@@ -1654,9 +1654,8 @@ async def evaluate_against_ground_truth(system_id: str):
 
     anomalies = analysis.get("anomalies", [])
 
-    # Build a set of row indices that the system flagged as anomalous
-    # Each anomaly may reference affected rows via row_indices, or we infer
-    # from affected_fields and the anomaly descriptions
+    # Build a set of row indices that the analysis engine flagged as anomalous
+    # Uses explicit row_indices from each detector — no ground-truth leakage
     detected_row_set = set()
     anomaly_details = []
 
@@ -1671,50 +1670,12 @@ async def evaluate_against_ground_truth(system_id: str):
             "impact_score": anom.get("impact_score", 0),
         }
 
-        # Check if the anomaly has explicit row references
+        # Use explicit row-level predictions from the analysis engine.
+        # row_indices contains the actual DataFrame rows the detector flagged,
+        # without any reference to ground truth labels.
         row_indices = anom.get("row_indices", [])
-        if row_indices:
-            detected_row_set.update(row_indices)
-            detail["detected_rows"] = len(row_indices)
-        else:
-            # Heuristic: if anomaly mentions specific fields, map affected
-            # fields to known fault types and mark matching GT rows
-            affected = set(f.lower() for f in anom.get("affected_fields", []))
-            title_lower = anom.get("title", "").lower()
-            desc_lower = anom.get("description", "").lower()
-            explanation = anom.get("natural_language_explanation", "").lower()
-            combined_text = f"{title_lower} {desc_lower} {explanation}"
-
-            matched_labels = set()
-
-            # GPS fault keywords
-            if any(kw in combined_text for kw in ["gps", "position", "satellite", "hdop", "navigation"]):
-                matched_labels.add(1)
-            # Accelerometer/IMU fault keywords
-            if any(kw in combined_text for kw in ["accelerometer", "imu", "accel", "gyro", "bias", "drift", "inertial"]):
-                matched_labels.add(2)
-            # Engine fault keywords
-            if any(kw in combined_text for kw in ["engine", "thrust", "throttle", "motor", "altitude drop", "vibration"]):
-                matched_labels.add(3)
-            # RC fault keywords
-            if any(kw in combined_text for kw in ["rc", "remote", "control", "command", "freeze", "erratic", "stabilize"]):
-                matched_labels.add(4)
-            # Attitude error keywords (could map to multiple faults)
-            if any(kw in combined_text for kw in ["attitude", "roll", "pitch", "yaw", "error"]):
-                matched_labels.update([2, 3, 4])
-            # Magnetometer keywords
-            if any(kw in combined_text for kw in ["magnet", "compass", "heading"]):
-                matched_labels.update([1, 4])
-
-            # If we couldn't match specific faults, treat as general anomaly
-            if not matched_labels:
-                matched_labels = {1, 2, 3, 4}
-
-            # Map matched labels to actual GT row indices
-            rows_for_this = [i for i, lbl in enumerate(labels) if lbl in matched_labels]
-            detected_row_set.update(rows_for_this)
-            detail["matched_fault_types"] = [label_map.get(l, str(l)) for l in sorted(matched_labels)]
-            detail["detected_rows"] = len(rows_for_this)
+        detected_row_set.update(row_indices)
+        detail["detected_rows"] = len(row_indices)
 
         anomaly_details.append(detail)
 
