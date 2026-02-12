@@ -398,23 +398,118 @@ export default function AnomalyExplorer() {
       {/* ════════════════════════════════════════════════════════════════════
           GROUND TRUTH EVALUATION PANEL
           ════════════════════════════════════════════════════════════════════ */}
-      {showEvaluation && evaluation && (
+      {showEvaluation && evaluation && (() => {
+        const cm = evaluation.confusion_matrix;
+        const totalRows = evaluation.summary.total_records;
+        const totalFaultRows = evaluation.summary.total_gt_anomalous;
+        const totalNormalRows = evaluation.summary.total_gt_normal;
+        const faultDetectedPct = totalFaultRows > 0 ? (cm.true_positive / totalFaultRows * 100) : 0;
+        const faultMissedPct = totalFaultRows > 0 ? (cm.false_negative / totalFaultRows * 100) : 0;
+        const falseAlarmPct = totalNormalRows > 0 ? (cm.false_positive / totalNormalRows * 100) : 0;
+        const correctNormalPct = totalNormalRows > 0 ? (cm.true_negative / totalNormalRows * 100) : 0;
+
+        return (
         <div className="mb-6 space-y-4 animate-fade-in">
-          {/* Metrics Banner */}
+          {/* ── Detection Summary — plain-language percentages ── */}
           <div className="glass-card p-5 border border-cyan-500/20">
             <div className="flex items-center gap-2 mb-4">
               <Shield className="w-4 h-4 text-cyan-400" />
               <h3 className="text-sm font-semibold text-cyan-400">
-                Ground Truth Evaluation — Kaggle TLM:UAV Dataset
+                Detection Summary — Kaggle TLM:UAV Dataset
               </h3>
               <span className="ml-auto text-[10px] text-stone-400">
-                {evaluation.summary.total_records.toLocaleString()} records
-                ({evaluation.summary.total_gt_anomalous.toLocaleString()} anomalous,
-                {' '}{evaluation.summary.total_gt_normal.toLocaleString()} normal)
+                {totalRows.toLocaleString()} total rows analyzed
               </span>
             </div>
 
-            {/* Key Metrics */}
+            {/* Big 3 percentages */}
+            <div className="grid grid-cols-3 gap-4 mb-5">
+              {/* Correctly detected faults */}
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-emerald-400 tabular-nums">
+                  {faultDetectedPct.toFixed(1)}%
+                </div>
+                <div className="text-xs text-emerald-300 mt-1 font-medium">Faults Detected Correctly</div>
+                <div className="text-[10px] text-stone-400 mt-1">
+                  {cm.true_positive.toLocaleString()} of {totalFaultRows.toLocaleString()} fault rows
+                </div>
+              </div>
+
+              {/* Missed faults */}
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-red-400 tabular-nums">
+                  {faultMissedPct.toFixed(1)}%
+                </div>
+                <div className="text-xs text-red-300 mt-1 font-medium">Faults Missed</div>
+                <div className="text-[10px] text-stone-400 mt-1">
+                  {cm.false_negative.toLocaleString()} of {totalFaultRows.toLocaleString()} fault rows
+                </div>
+              </div>
+
+              {/* False alarms */}
+              <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-orange-400 tabular-nums">
+                  {falseAlarmPct.toFixed(1)}%
+                </div>
+                <div className="text-xs text-orange-300 mt-1 font-medium">False Alarms</div>
+                <div className="text-[10px] text-stone-400 mt-1">
+                  {cm.false_positive.toLocaleString()} of {totalNormalRows.toLocaleString()} normal rows flagged
+                </div>
+              </div>
+            </div>
+
+            {/* Detection bar visual */}
+            <div className="mb-5">
+              <div className="flex items-center justify-between text-[10px] text-stone-400 mb-1">
+                <span>Fault rows ({totalFaultRows.toLocaleString()})</span>
+                <span>{faultDetectedPct.toFixed(1)}% detected / {faultMissedPct.toFixed(1)}% missed</span>
+              </div>
+              <div className="w-full bg-stone-700/50 rounded-full h-4 flex overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-4 transition-all flex items-center justify-center text-[9px] text-white font-bold"
+                  style={{ width: `${faultDetectedPct}%` }}
+                >
+                  {faultDetectedPct >= 10 ? `${faultDetectedPct.toFixed(0)}%` : ''}
+                </div>
+                <div
+                  className="bg-red-500 h-4 transition-all flex items-center justify-center text-[9px] text-white font-bold"
+                  style={{ width: `${faultMissedPct}%` }}
+                >
+                  {faultMissedPct >= 10 ? `${faultMissedPct.toFixed(0)}%` : ''}
+                </div>
+              </div>
+              <div className="flex gap-4 mt-1.5 text-[10px]">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Detected (TP)</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Missed (FN)</span>
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <div className="flex items-center justify-between text-[10px] text-stone-400 mb-1">
+                <span>Normal rows ({totalNormalRows.toLocaleString()})</span>
+                <span>{correctNormalPct.toFixed(1)}% correct / {falseAlarmPct.toFixed(1)}% false alarms</span>
+              </div>
+              <div className="w-full bg-stone-700/50 rounded-full h-4 flex overflow-hidden">
+                <div
+                  className="bg-stone-500 h-4 transition-all flex items-center justify-center text-[9px] text-white font-bold"
+                  style={{ width: `${correctNormalPct}%` }}
+                >
+                  {correctNormalPct >= 10 ? `${correctNormalPct.toFixed(0)}%` : ''}
+                </div>
+                <div
+                  className="bg-orange-500 h-4 transition-all flex items-center justify-center text-[9px] text-white font-bold"
+                  style={{ width: `${falseAlarmPct}%` }}
+                >
+                  {falseAlarmPct >= 10 ? `${falseAlarmPct.toFixed(0)}%` : ''}
+                </div>
+              </div>
+              <div className="flex gap-4 mt-1.5 text-[10px]">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-stone-500 inline-block" /> Correct Normal (TN)</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500 inline-block" /> False Alarm (FP)</span>
+              </div>
+            </div>
+
+            {/* Standard ML Metrics */}
             <div className="grid grid-cols-5 gap-3 mb-5">
               {[
                 { label: 'Accuracy', value: evaluation.evaluation.accuracy, color: 'text-white' },
@@ -566,7 +661,8 @@ export default function AnomalyExplorer() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Evaluation loading state */}
       {evalLoading && (
