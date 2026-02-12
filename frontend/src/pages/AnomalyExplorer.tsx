@@ -181,7 +181,7 @@ export default function AnomalyExplorer() {
     try {
       const sys = await systemsApi.get(systemId);
       setSystem(sys as System);
-      const result = await systemsApi.analyze(systemId);
+      const result = await systemsApi.getAnalysis(systemId);
       if (result && result.anomalies) {
         setAnomalies(result.anomalies as AnomalyItem[]);
       }
