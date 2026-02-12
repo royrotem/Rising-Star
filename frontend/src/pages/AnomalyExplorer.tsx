@@ -157,8 +157,10 @@ export default function AnomalyExplorer() {
   // Ground truth evaluation
   const [evaluation, setEvaluation] = useState<GroundTruthEvaluation | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
-  const [showEvaluation, setShowEvaluation] = useState(false);
+  const [evalError, setEvalError] = useState<string | null>(null);
+  const [showEvaluation, setShowEvaluation] = useState(true); // default open
   const [rowFilter, setRowFilter] = useState<string | null>(null);
+  const [isDemo, setIsDemo] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -187,18 +189,22 @@ export default function AnomalyExplorer() {
       }
 
       // Auto-run evaluation if this is a demo system with ground truth
-      const isDemo = sys?.is_demo
-        || sys?.metadata?.has_ground_truth
-        || sys?.metadata?.is_real_data
+      const demoCheck = !!(sys?.is_demo)
+        || !!(sys?.metadata?.has_ground_truth)
+        || !!(sys?.metadata?.is_real_data)
         || systemId.startsWith('demo-uav-');
-      if (isDemo) {
+      setIsDemo(demoCheck);
+      if (demoCheck) {
         setEvalLoading(true);
+        setEvalError(null);
         try {
           const evalResult = await demoApi.evaluate(systemId);
           setEvaluation(evalResult);
           setShowEvaluation(true);
-        } catch {
-          // Ground truth not available — that's fine
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('Ground truth evaluation failed:', err);
+          setEvalError(`Evaluation failed: ${msg}`);
         } finally {
           setEvalLoading(false);
         }
@@ -347,13 +353,13 @@ export default function AnomalyExplorer() {
           </h1>
           <p className="text-sm text-stone-400">
             {system?.name || 'System'} — {anomalies.length} anomalies detected
-            {hasGroundTruth && (
-              <span className="ml-2 text-cyan-400">(Kaggle TLM-UAV — real data with ground truth)</span>
+            {isDemo && (
+              <span className="ml-2 text-cyan-400">(Kaggle TLM-UAV — real labeled data)</span>
             )}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {hasGroundTruth && (
+          {isDemo && (
             <button
               onClick={() => setShowEvaluation(!showEvaluation)}
               className={clsx(
@@ -402,7 +408,37 @@ export default function AnomalyExplorer() {
       {/* ════════════════════════════════════════════════════════════════════
           GROUND TRUTH EVALUATION PANEL
           ════════════════════════════════════════════════════════════════════ */}
-      {showEvaluation && evaluation && (() => {
+      {/* Ground Truth Evaluation Section — always visible for demo systems */}
+      {isDemo && showEvaluation && evalLoading && (
+        <div className="mb-6 glass-card p-5 border border-cyan-500/20 flex items-center gap-3">
+          <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+          <span className="text-sm text-cyan-400">Evaluating detections against ground truth labels...</span>
+        </div>
+      )}
+
+      {isDemo && showEvaluation && evalError && (
+        <div className="mb-6 glass-card p-5 border border-red-500/20">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400" />
+            <span className="text-sm text-red-400">{evalError}</span>
+            <button
+              onClick={() => {
+                setEvalError(null);
+                setEvalLoading(true);
+                demoApi.evaluate(systemId!)
+                  .then((r) => { setEvaluation(r); setShowEvaluation(true); })
+                  .catch((err: unknown) => setEvalError(`Retry failed: ${err instanceof Error ? err.message : String(err)}`))
+                  .finally(() => setEvalLoading(false));
+              }}
+              className="ml-auto px-3 py-1.5 bg-red-500/10 text-red-400 rounded-lg text-xs font-medium hover:bg-red-500/20 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isDemo && showEvaluation && evaluation && (() => {
         const cm = evaluation.confusion_matrix;
         const totalRows = evaluation.summary.total_records;
         const totalFaultRows = evaluation.summary.total_gt_anomalous;
@@ -667,14 +703,6 @@ export default function AnomalyExplorer() {
         </div>
         );
       })()}
-
-      {/* Evaluation loading state */}
-      {evalLoading && (
-        <div className="mb-6 glass-card p-4 border-cyan-500/20 flex items-center gap-3">
-          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
-          <span className="text-sm text-cyan-400">Evaluating against ground truth labels...</span>
-        </div>
-      )}
 
       {/* Severity Distribution */}
       {anomalies.length > 0 && (
