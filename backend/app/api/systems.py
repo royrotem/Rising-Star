@@ -1648,7 +1648,7 @@ async def evaluate_against_ground_truth(system_id: str):
     label_map = gt["label_map"]
 
     # Get analysis results
-    analysis = data_store.get_analysis(system_id)
+    analysis = load_saved_analysis(system_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis results found. Run analysis first.")
 
