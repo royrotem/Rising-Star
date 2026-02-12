@@ -26,6 +26,9 @@ openpyxl==3.1.5
 pyyaml==6.0.1
 xgboost==2.0.3
 joblib>=1.3.0
+# PyTorch CPU-only — installed separately in Dockerfile via --index-url
+# for much smaller image size (~200MB vs ~916MB with CUDA)
+# On local dev with GPU, install manually: pip install torch
 torch>=2.0.0
 
 # Security
