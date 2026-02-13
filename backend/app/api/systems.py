@@ -1784,6 +1784,84 @@ async def evaluate_against_ground_truth(system_id: str):
         avg_y = (unique_roc[i]["tpr"] + unique_roc[i - 1]["tpr"]) / 2
         auc += dx * avg_y
 
+    # ── Temporal cluster analysis ──────────────────────────────────────
+    # Group consecutive anomalous GT rows into clusters along the time
+    # axis.  A cluster is "detected" if we flagged >= threshold% of its
+    # rows as anomalous.
+    CLUSTER_GAP = 5            # max normal-row gap before splitting clusters
+    DETECTION_THRESHOLD = 0.3  # flag >=30% of cluster rows → cluster detected
+
+    clusters = []
+    cur_start = None
+    cur_end = None
+    cur_label = None
+
+    for i in range(total):
+        is_fault = labels[i] != 0
+        if is_fault:
+            if cur_start is None:
+                cur_start = i
+                cur_end = i
+                cur_label = labels[i]
+            elif i - cur_end <= CLUSTER_GAP:
+                cur_end = i
+                cur_label = labels[i]
+            else:
+                clusters.append((cur_start, cur_end, cur_label))
+                cur_start = i
+                cur_end = i
+                cur_label = labels[i]
+        elif cur_start is not None and i - cur_end > CLUSTER_GAP:
+            clusters.append((cur_start, cur_end, cur_label))
+            cur_start = None
+            cur_end = None
+            cur_label = None
+
+    if cur_start is not None:
+        clusters.append((cur_start, cur_end, cur_label))
+
+    cluster_results = []
+    clusters_detected = 0
+    clusters_missed = 0
+
+    for start, end, clabel in clusters:
+        fault_idx = [j for j in range(start, end + 1) if labels[j] != 0]
+        sz = len(fault_idx)
+        if sz == 0:
+            continue
+        det = sum(1 for j in fault_idx if j < len(row_predictions) and row_predictions[j] != 0)
+        rate = det / sz
+        is_det = rate >= DETECTION_THRESHOLD
+        if is_det:
+            clusters_detected += 1
+        else:
+            clusters_missed += 1
+
+        cluster_results.append({
+            "cluster_id": len(cluster_results) + 1,
+            "start_row": start,
+            "end_row": end,
+            "fault_type": label_map.get(clabel, "unknown"),
+            "fault_label": clabel,
+            "total_fault_rows": sz,
+            "detected_rows": det,
+            "detection_rate": round(rate, 4),
+            "detected": is_det,
+        })
+
+    total_clusters = clusters_detected + clusters_missed
+    cluster_detection_rate = clusters_detected / total_clusters if total_clusters > 0 else 0
+
+    cluster_analysis = {
+        "total_clusters": total_clusters,
+        "clusters_detected": clusters_detected,
+        "clusters_missed": clusters_missed,
+        "cluster_detection_rate": round(cluster_detection_rate, 4),
+        "detection_threshold": DETECTION_THRESHOLD,
+        "cluster_gap": CLUSTER_GAP,
+        "clusters": cluster_results,
+    }
+
     # ── Confusion matrix ────────────────────────────────────────────────
     confusion_matrix = {
         "true_positive": tp,
@@ -1803,6 +1881,7 @@ async def evaluate_against_ground_truth(system_id: str):
         },
         "confusion_matrix": confusion_matrix,
         "fault_type_breakdown": fault_type_results,
+        "cluster_analysis": cluster_analysis,
         "roc_curve": unique_roc,
         "per_row_sample": per_row_results,
         "summary": {

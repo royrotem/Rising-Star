@@ -617,6 +617,136 @@ export default function AnomalyExplorer() {
             </div>
           </div>
 
+          {/* Temporal Cluster Detection */}
+          {evaluation.cluster_analysis && evaluation.cluster_analysis.total_clusters > 0 && (() => {
+            const ca = evaluation.cluster_analysis;
+            const detectedPct = ca.cluster_detection_rate * 100;
+            const missedPct = 100 - detectedPct;
+            return (
+              <div className="glass-card p-5 border border-violet-500/20">
+                <div className="flex items-center gap-2 mb-4">
+                  <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide flex items-center gap-2">
+                    <BarChart3 className="w-3.5 h-3.5 text-violet-400" />
+                    Temporal Cluster Detection
+                  </h3>
+                  <span className="ml-auto text-[10px] text-stone-400">
+                    Gap tolerance: {ca.cluster_gap} rows &middot; Detection threshold: {(ca.detection_threshold * 100).toFixed(0)}% of cluster rows
+                  </span>
+                </div>
+
+                {/* Summary cards */}
+                <div className="grid grid-cols-3 gap-4 mb-5">
+                  <div className="bg-stone-800/50 rounded-xl p-4 text-center">
+                    <div className="text-3xl font-bold text-white tabular-nums">{ca.total_clusters}</div>
+                    <div className="text-xs text-stone-400 mt-1">Total Clusters</div>
+                  </div>
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 text-center">
+                    <div className="text-3xl font-bold text-emerald-400 tabular-nums">{ca.clusters_detected}</div>
+                    <div className="text-xs text-emerald-300 mt-1">Clusters Detected</div>
+                    <div className="text-[10px] text-stone-400 mt-0.5">{detectedPct.toFixed(1)}%</div>
+                  </div>
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-center">
+                    <div className="text-3xl font-bold text-red-400 tabular-nums">{ca.clusters_missed}</div>
+                    <div className="text-xs text-red-300 mt-1">Clusters Missed</div>
+                    <div className="text-[10px] text-stone-400 mt-0.5">{missedPct.toFixed(1)}%</div>
+                  </div>
+                </div>
+
+                {/* Detection bar */}
+                <div className="mb-5">
+                  <div className="flex items-center justify-between text-[10px] text-stone-400 mb-1">
+                    <span>Anomaly clusters ({ca.total_clusters})</span>
+                    <span>{detectedPct.toFixed(1)}% detected / {missedPct.toFixed(1)}% missed</span>
+                  </div>
+                  <div className="w-full bg-stone-700/50 rounded-full h-4 flex overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-4 transition-all flex items-center justify-center text-[9px] text-white font-bold"
+                      style={{ width: `${detectedPct}%` }}
+                    >
+                      {detectedPct >= 15 ? `${detectedPct.toFixed(0)}%` : ''}
+                    </div>
+                    <div
+                      className="bg-red-500 h-4 transition-all flex items-center justify-center text-[9px] text-white font-bold"
+                      style={{ width: `${missedPct}%` }}
+                    >
+                      {missedPct >= 15 ? `${missedPct.toFixed(0)}%` : ''}
+                    </div>
+                  </div>
+                  <div className="flex gap-4 mt-1.5 text-[10px]">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Detected</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Missed</span>
+                  </div>
+                </div>
+
+                {/* Per-cluster table */}
+                <div className="max-h-[320px] overflow-y-auto rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-stone-800 z-10">
+                      <tr className="text-stone-400 text-left">
+                        <th className="px-3 py-2 font-medium">#</th>
+                        <th className="px-3 py-2 font-medium">Rows</th>
+                        <th className="px-3 py-2 font-medium">Fault Type</th>
+                        <th className="px-3 py-2 font-medium">Fault Rows</th>
+                        <th className="px-3 py-2 font-medium">Detected</th>
+                        <th className="px-3 py-2 font-medium">Detection Rate</th>
+                        <th className="px-3 py-2 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-700/30">
+                      {ca.clusters.map((c) => (
+                        <tr
+                          key={c.cluster_id}
+                          className={clsx(
+                            'transition-colors',
+                            c.detected ? 'bg-emerald-500/5' : 'bg-red-500/5'
+                          )}
+                        >
+                          <td className="px-3 py-1.5 text-stone-300 tabular-nums font-mono">{c.cluster_id}</td>
+                          <td className="px-3 py-1.5 text-stone-300 tabular-nums font-mono">
+                            {c.start_row}–{c.end_row}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <span className="px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded text-[10px] font-medium capitalize">
+                              {c.fault_type.replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 text-stone-300 tabular-nums">{c.total_fault_rows}</td>
+                          <td className="px-3 py-1.5 text-stone-300 tabular-nums">{c.detected_rows}</td>
+                          <td className="px-3 py-1.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 bg-stone-700/50 rounded-full h-1.5">
+                                <div
+                                  className={clsx(
+                                    'h-1.5 rounded-full',
+                                    c.detection_rate >= 0.7 ? 'bg-emerald-500' :
+                                    c.detection_rate >= 0.3 ? 'bg-yellow-500' : 'bg-red-500'
+                                  )}
+                                  style={{ width: `${c.detection_rate * 100}%` }}
+                                />
+                              </div>
+                              <span className="text-stone-300 tabular-nums">{(c.detection_rate * 100).toFixed(0)}%</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {c.detected ? (
+                              <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 rounded text-[10px] font-medium">
+                                Detected
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 bg-red-500/15 text-red-400 border border-red-500/20 rounded text-[10px] font-medium">
+                                Missed
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Per-Row Sample Table */}
           <div className="glass-card p-5 border border-cyan-500/10">
             <div className="flex items-center gap-2 mb-3">

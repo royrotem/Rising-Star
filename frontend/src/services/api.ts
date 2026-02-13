@@ -157,6 +157,25 @@ export interface GroundTruthEvaluation {
     missed: number;
     recall: number;
   }>;
+  cluster_analysis: {
+    total_clusters: number;
+    clusters_detected: number;
+    clusters_missed: number;
+    cluster_detection_rate: number;
+    detection_threshold: number;
+    cluster_gap: number;
+    clusters: Array<{
+      cluster_id: number;
+      start_row: number;
+      end_row: number;
+      fault_type: string;
+      fault_label: number;
+      total_fault_rows: number;
+      detected_rows: number;
+      detection_rate: number;
+      detected: boolean;
+    }>;
+  };
   roc_curve: Array<{ fpr: number; tpr: number; threshold?: number }>;
   per_row_sample: Array<{
     row_index: number;
