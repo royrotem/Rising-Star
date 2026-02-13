@@ -1,12 +1,14 @@
 """
 ML Model Inference Service
 
-Loads pre-trained XGBoost, 1D-CNN Autoencoder, and Logistic Regression models
-from backend/models/ and runs inference only — no on-the-fly training.
+Pre-trained models (XGBoost, 1D-CNN Autoencoder, Logistic Regression) are
+loaded from backend/models/ and run inference only.
 
-Models are trained in a separate project and transferred as serialized files.
-Each detector gracefully degrades: if its model files are missing the detector
-reports itself as unavailable and the pipeline continues without it.
+Self-training models (Isolation Forest, One-Class SVM, Gaussian Mixture Model,
+KDE) fit on the incoming data at analysis time — no pre-trained files needed.
+
+Each detector gracefully degrades: if its dependencies or model files are
+missing the detector reports itself as unavailable and the pipeline continues.
 """
 
 import asyncio
@@ -39,6 +41,17 @@ try:
 except ImportError:
     HAS_TORCH = False
     logger.info("torch not installed — CNN autoencoder detector will be unavailable")
+
+try:
+    from sklearn.ensemble import IsolationForest
+    from sklearn.svm import OneClassSVM
+    from sklearn.mixture import GaussianMixture
+    from sklearn.neighbors import KernelDensity
+    from sklearn.preprocessing import StandardScaler as SkScaler
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+    logger.info("scikit-learn not installed — self-training ML detectors will be unavailable")
 
 from ..core.config import settings
 
@@ -231,25 +244,28 @@ class XGBoostAnomalyDetector:
 # 1D-CNN Autoencoder Detector
 # ═══════════════════════════════════════════════════════════════════
 
-class _Autoencoder(nn.Module):
-    """Feedforward autoencoder matching the saved state_dict layout."""
+if HAS_TORCH:
+    class _Autoencoder(nn.Module):
+        """Feedforward autoencoder matching the saved state_dict layout."""
 
-    def __init__(self, n_features: int) -> None:
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(n_features, 64),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(64, 32),
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(32, 64),
-            nn.ReLU(),
-            nn.Linear(64, n_features),
-        )
+        def __init__(self, n_features: int) -> None:
+            super().__init__()
+            self.encoder = nn.Sequential(
+                nn.Linear(n_features, 64),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(64, 32),
+            )
+            self.decoder = nn.Sequential(
+                nn.Linear(32, 64),
+                nn.ReLU(),
+                nn.Linear(64, n_features),
+            )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.decoder(self.encoder(x))
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.decoder(self.encoder(x))
+else:
+    _Autoencoder = None  # type: ignore[assignment,misc]
 
 
 class CNNAutoencoderDetector:
@@ -473,6 +489,428 @@ class LogisticRegressionMetaLearner:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Isolation Forest (sklearn — self-training)
+# ═══════════════════════════════════════════════════════════════════
+
+class IsolationForestDetector:
+    """Full sklearn Isolation Forest.  Fits on the incoming data, so no
+    pre-trained model file is required.
+
+    Key parameters auto-tuned via the data:
+      - n_estimators: 200 trees (higher than default for better resolution)
+      - contamination: auto (uses offset-based heuristic)
+      - max_features: min(1.0, 8 / n_features) — limits tree depth for speed
+    """
+
+    name = "Isolation Forest (sklearn)"
+
+    def __init__(self, contamination: float = 0.05, n_estimators: int = 200,
+                 max_anomalies: int = 50) -> None:
+        self.available = HAS_SKLEARN
+        self.contamination = contamination
+        self.n_estimators = n_estimators
+        self.max_anomalies = max_anomalies
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        if not self.available:
+            return []
+
+        numeric = df.select_dtypes(include=["number"]).dropna(axis=1, how="all").fillna(0)
+        if numeric.empty or len(numeric) < 30 or numeric.shape[1] < 2:
+            return []
+
+        scaler = SkScaler()
+        X = scaler.fit_transform(numeric.values)
+
+        max_features = min(1.0, 8.0 / X.shape[1]) if X.shape[1] > 8 else 1.0
+
+        iso = IsolationForest(
+            n_estimators=self.n_estimators,
+            contamination=self.contamination,
+            max_features=max_features,
+            random_state=42,
+            n_jobs=-1,
+        )
+        labels = iso.fit_predict(X)
+        scores = -iso.score_samples(X)  # higher = more anomalous
+
+        outlier_indices = np.where(labels == -1)[0]
+        if len(outlier_indices) == 0:
+            return []
+
+        # Sort by anomaly score
+        sorted_indices = outlier_indices[np.argsort(scores[outlier_indices])[::-1]]
+
+        anomalies: List[Dict] = []
+        for idx in sorted_indices[:self.max_anomalies]:
+            raw_score = float(scores[idx])
+            # Normalise to 0-1: scores typically range from 0.4 to 0.7+
+            norm_score = min(max((raw_score - 0.5) * 4.0, 0.1), 1.0)
+            severity = _score_to_severity(norm_score)
+
+            # Top features
+            point = X[idx]
+            col_means = X.mean(axis=0)
+            col_stds = X.std(axis=0)
+            col_stds[col_stds == 0] = 1
+            abs_z = np.abs((point - col_means) / col_stds)
+            top_feat_idx = np.argsort(abs_z)[-3:][::-1]
+            top_features = [numeric.columns[j] for j in top_feat_idx]
+
+            anomalies.append(_build_anomaly(
+                anomaly_type="ml_isolation_forest",
+                title=f"Isolation Forest anomaly at row {idx}",
+                description=(
+                    f"sklearn IsolationForest ({self.n_estimators} trees) flagged "
+                    f"row {idx} with anomaly score {raw_score:.4f}. "
+                    f"Top features: {', '.join(top_features)}."
+                ),
+                severity=severity,
+                confidence=round(norm_score, 4),
+                affected_fields=top_features,
+                index=int(idx),
+                detected_by=self.name,
+                model_metadata={
+                    "anomaly_score": round(raw_score, 4),
+                    "n_estimators": self.n_estimators,
+                    "contamination": self.contamination,
+                    "max_features": round(max_features, 4),
+                    "top_features": top_features,
+                },
+            ))
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
+# One-Class SVM (self-training)
+# ═══════════════════════════════════════════════════════════════════
+
+class OneClassSVMDetector:
+    """One-Class SVM for novelty detection.  Learns a decision boundary
+    around the normal data using an RBF kernel.
+
+    Parameters:
+      - kernel: RBF (default) — captures non-linear boundaries
+      - nu: upper bound on fraction of training errors (~contamination)
+      - gamma: 'scale' (auto-tuned from data variance)
+    """
+
+    name = "One-Class SVM"
+
+    def __init__(self, nu: float = 0.05, kernel: str = "rbf",
+                 max_anomalies: int = 50) -> None:
+        self.available = HAS_SKLEARN
+        self.nu = nu
+        self.kernel = kernel
+        self.max_anomalies = max_anomalies
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        if not self.available:
+            return []
+
+        numeric = df.select_dtypes(include=["number"]).dropna(axis=1, how="all").fillna(0)
+        if numeric.empty or len(numeric) < 30 or numeric.shape[1] < 2:
+            return []
+
+        # Subsample if too large (SVM is O(n²))
+        max_rows = 5000
+        if len(numeric) > max_rows:
+            sample_idx = np.random.RandomState(42).choice(len(numeric), max_rows, replace=False)
+            sample_idx = np.sort(sample_idx)
+            X_raw = numeric.iloc[sample_idx].values
+            index_map = sample_idx
+        else:
+            X_raw = numeric.values
+            index_map = np.arange(len(numeric))
+
+        scaler = SkScaler()
+        X = scaler.fit_transform(X_raw)
+
+        try:
+            svm = OneClassSVM(kernel=self.kernel, nu=self.nu, gamma="scale")
+            labels = svm.fit_predict(X)
+            decision = svm.decision_function(X)  # negative = anomalous
+        except Exception as exc:
+            logger.warning("One-Class SVM failed: %s", exc)
+            return []
+
+        outlier_mask = labels == -1
+        outlier_indices = np.where(outlier_mask)[0]
+        if len(outlier_indices) == 0:
+            return []
+
+        # Score: more negative decision = more anomalous
+        min_dec = decision.min()
+        max_dec = decision.max()
+        score_range = max_dec - min_dec if max_dec != min_dec else 1.0
+
+        sorted_indices = outlier_indices[np.argsort(decision[outlier_indices])]
+
+        anomalies: List[Dict] = []
+        for idx in sorted_indices[:self.max_anomalies]:
+            original_idx = int(index_map[idx])
+            dec_val = float(decision[idx])
+            norm_score = min(max((max_dec - dec_val) / score_range, 0.1), 1.0)
+            severity = _score_to_severity(norm_score)
+
+            point = X[idx]
+            col_means = X.mean(axis=0)
+            col_stds = X.std(axis=0)
+            col_stds[col_stds == 0] = 1
+            abs_z = np.abs((point - col_means) / col_stds)
+            top_feat_idx = np.argsort(abs_z)[-3:][::-1]
+            top_features = [numeric.columns[j] for j in top_feat_idx]
+
+            anomalies.append(_build_anomaly(
+                anomaly_type="ml_one_class_svm",
+                title=f"One-Class SVM anomaly at row {original_idx}",
+                description=(
+                    f"One-Class SVM (kernel={self.kernel}, nu={self.nu}) flagged "
+                    f"row {original_idx} with decision value {dec_val:.4f}. "
+                    f"Top features: {', '.join(top_features)}."
+                ),
+                severity=severity,
+                confidence=round(norm_score, 4),
+                affected_fields=top_features,
+                index=original_idx,
+                detected_by=self.name,
+                model_metadata={
+                    "decision_value": round(dec_val, 4),
+                    "kernel": self.kernel,
+                    "nu": self.nu,
+                    "top_features": top_features,
+                },
+            ))
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Gaussian Mixture Model (self-training)
+# ═══════════════════════════════════════════════════════════════════
+
+class GMMDetector:
+    """Fits a Gaussian Mixture Model and flags low-probability points.
+
+    The number of components is auto-selected via BIC from candidates
+    [2, 3, 5, 8] to balance complexity and fit.
+
+    Points whose log-likelihood falls below a percentile threshold are
+    flagged as anomalies.
+    """
+
+    name = "Gaussian Mixture Model"
+
+    def __init__(self, contamination: float = 0.05, max_components: int = 8,
+                 max_anomalies: int = 50) -> None:
+        self.available = HAS_SKLEARN
+        self.contamination = contamination
+        self.max_components = max_components
+        self.max_anomalies = max_anomalies
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        if not self.available:
+            return []
+
+        numeric = df.select_dtypes(include=["number"]).dropna(axis=1, how="all").fillna(0)
+        if numeric.empty or len(numeric) < 50 or numeric.shape[1] < 2:
+            return []
+
+        # Limit features
+        if numeric.shape[1] > 12:
+            variances = numeric.var().sort_values(ascending=False)
+            numeric = numeric[variances.head(12).index]
+
+        scaler = SkScaler()
+        X = scaler.fit_transform(numeric.values)
+
+        # Auto-select n_components via BIC
+        best_gmm = None
+        best_bic = np.inf
+        candidates = [c for c in [2, 3, 5, self.max_components] if c <= len(X) // 5]
+        if not candidates:
+            candidates = [2]
+
+        for n_comp in candidates:
+            try:
+                gmm = GaussianMixture(
+                    n_components=n_comp,
+                    covariance_type="full",
+                    random_state=42,
+                    max_iter=200,
+                    n_init=2,
+                )
+                gmm.fit(X)
+                bic = gmm.bic(X)
+                if bic < best_bic:
+                    best_bic = bic
+                    best_gmm = gmm
+            except Exception:
+                continue
+
+        if best_gmm is None:
+            return []
+
+        log_probs = best_gmm.score_samples(X)
+        # Threshold: bottom contamination-percentile of log-likelihoods
+        threshold = np.percentile(log_probs, self.contamination * 100)
+
+        outlier_indices = np.where(log_probs < threshold)[0]
+        if len(outlier_indices) == 0:
+            return []
+
+        sorted_indices = outlier_indices[np.argsort(log_probs[outlier_indices])]
+
+        max_lp = log_probs.max()
+        min_lp = log_probs.min()
+        lp_range = max_lp - min_lp if max_lp != min_lp else 1.0
+
+        anomalies: List[Dict] = []
+        for idx in sorted_indices[:self.max_anomalies]:
+            lp = float(log_probs[idx])
+            norm_score = min(max((max_lp - lp) / lp_range, 0.1), 1.0)
+            severity = _score_to_severity(norm_score)
+
+            point = X[idx]
+            col_means = X.mean(axis=0)
+            col_stds = X.std(axis=0)
+            col_stds[col_stds == 0] = 1
+            abs_z = np.abs((point - col_means) / col_stds)
+            top_feat_idx = np.argsort(abs_z)[-3:][::-1]
+            top_features = [numeric.columns[j] for j in top_feat_idx]
+
+            anomalies.append(_build_anomaly(
+                anomaly_type="ml_gmm",
+                title=f"GMM low-probability anomaly at row {idx}",
+                description=(
+                    f"Gaussian Mixture Model ({best_gmm.n_components} components, "
+                    f"BIC={best_bic:.0f}) assigned log-likelihood {lp:.3f} to "
+                    f"row {idx} (threshold {threshold:.3f}). "
+                    f"Top features: {', '.join(top_features)}."
+                ),
+                severity=severity,
+                confidence=round(norm_score, 4),
+                affected_fields=top_features,
+                index=int(idx),
+                detected_by=self.name,
+                model_metadata={
+                    "log_likelihood": round(lp, 4),
+                    "threshold": round(float(threshold), 4),
+                    "n_components": best_gmm.n_components,
+                    "bic": round(float(best_bic), 2),
+                    "top_features": top_features,
+                },
+            ))
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Kernel Density Estimation (KDE) Detector
+# ═══════════════════════════════════════════════════════════════════
+
+class KDEDetector:
+    """Non-parametric density estimation using Gaussian KDE from sklearn.
+
+    Unlike GMM, KDE makes no assumption about the number of components.
+    Bandwidth is auto-tuned via Silverman's rule scaled by a grid search
+    over a small set of multipliers.
+
+    Points in low-density regions (bottom percentile) are flagged.
+    """
+
+    name = "KDE Anomaly Detector"
+
+    def __init__(self, contamination: float = 0.05, max_anomalies: int = 50) -> None:
+        self.available = HAS_SKLEARN
+        self.contamination = contamination
+        self.max_anomalies = max_anomalies
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        if not self.available:
+            return []
+
+        numeric = df.select_dtypes(include=["number"]).dropna(axis=1, how="all").fillna(0)
+        if numeric.empty or len(numeric) < 50 or numeric.shape[1] < 2:
+            return []
+
+        # Limit features for KDE (curse of dimensionality)
+        if numeric.shape[1] > 8:
+            variances = numeric.var().sort_values(ascending=False)
+            numeric = numeric[variances.head(8).index]
+
+        scaler = SkScaler()
+        X = scaler.fit_transform(numeric.values)
+
+        # Silverman's rule for bandwidth
+        n, d = X.shape
+        silverman_bw = (n * (d + 2) / 4.0) ** (-1.0 / (d + 4))
+
+        # Quick grid search over bandwidth multipliers
+        best_kde = None
+        best_score = -np.inf
+        for mult in [0.5, 1.0, 1.5, 2.0]:
+            bw = silverman_bw * mult
+            kde = KernelDensity(kernel="gaussian", bandwidth=bw)
+            kde.fit(X)
+            cv_score = kde.score(X)  # log-likelihood on training data
+            if cv_score > best_score:
+                best_score = cv_score
+                best_kde = kde
+
+        if best_kde is None:
+            return []
+
+        log_densities = best_kde.score_samples(X)
+        threshold = np.percentile(log_densities, self.contamination * 100)
+
+        outlier_indices = np.where(log_densities < threshold)[0]
+        if len(outlier_indices) == 0:
+            return []
+
+        sorted_indices = outlier_indices[np.argsort(log_densities[outlier_indices])]
+
+        max_ld = log_densities.max()
+        min_ld = log_densities.min()
+        ld_range = max_ld - min_ld if max_ld != min_ld else 1.0
+
+        anomalies: List[Dict] = []
+        for idx in sorted_indices[:self.max_anomalies]:
+            ld = float(log_densities[idx])
+            norm_score = min(max((max_ld - ld) / ld_range, 0.1), 1.0)
+            severity = _score_to_severity(norm_score)
+
+            point = X[idx]
+            col_means = X.mean(axis=0)
+            col_stds = X.std(axis=0)
+            col_stds[col_stds == 0] = 1
+            abs_z = np.abs((point - col_means) / col_stds)
+            top_feat_idx = np.argsort(abs_z)[-3:][::-1]
+            top_features = [numeric.columns[j] for j in top_feat_idx]
+
+            anomalies.append(_build_anomaly(
+                anomaly_type="ml_kde",
+                title=f"KDE low-density anomaly at row {idx}",
+                description=(
+                    f"Kernel Density Estimation (bandwidth={best_kde.bandwidth:.4f}) "
+                    f"assigned log-density {ld:.3f} to row {idx} "
+                    f"(threshold {threshold:.3f}). "
+                    f"Top features: {', '.join(top_features)}."
+                ),
+                severity=severity,
+                confidence=round(norm_score, 4),
+                affected_fields=top_features,
+                index=int(idx),
+                detected_by=self.name,
+                model_metadata={
+                    "log_density": round(ld, 4),
+                    "threshold": round(float(threshold), 4),
+                    "bandwidth": round(float(best_kde.bandwidth), 4),
+                    "top_features": top_features,
+                },
+            ))
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
 # ML Model Orchestrator
 # ═══════════════════════════════════════════════════════════════════
 
@@ -480,10 +918,20 @@ class MLModelOrchestrator:
     """Runs all available ML detectors and collects results."""
 
     def __init__(self) -> None:
+        # Pre-trained models (loaded from files)
         self.xgboost = XGBoostAnomalyDetector()
         self.cnn = CNNAutoencoderDetector()
         self.logreg = LogisticRegressionMetaLearner()
-        self.detectors = [self.xgboost, self.cnn, self.logreg]
+        # Self-training models (fit on incoming data)
+        self.isolation_forest = IsolationForestDetector()
+        self.one_class_svm = OneClassSVMDetector()
+        self.gmm = GMMDetector()
+        self.kde = KDEDetector()
+        self.detectors = [
+            self.xgboost, self.cnn, self.logreg,
+            self.isolation_forest, self.one_class_svm,
+            self.gmm, self.kde,
+        ]
 
     @property
     def models_available(self) -> Dict[str, bool]:

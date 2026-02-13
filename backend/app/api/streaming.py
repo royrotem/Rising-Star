@@ -159,14 +159,14 @@ async def analyze_system_stream(
                 "progress": 35,
             })
 
-            # ── Stage 2.25: Hard-coded anomaly detection models (5 algorithms) ──
+            # ── Stage 2.25: Hard-coded anomaly detection models (9 algorithms) ──
             hc_result: Dict[str, Any] = {
                 "anomalies": [], "model_statuses": [], "total_findings": 0, "models_available": {},
             }
             try:
                 yield _sse_event("stage", {
                     "stage": "hardcoded_models",
-                    "message": "Running hard-coded anomaly detection algorithms...",
+                    "message": "Running 9 hard-coded anomaly detection algorithms...",
                     "progress": 36,
                 })
 
@@ -211,7 +211,7 @@ async def analyze_system_stream(
             try:
                 yield _sse_event("stage", {
                     "stage": "ml_models",
-                    "message": "Running ML anomaly detection models...",
+                    "message": "Running 7 ML anomaly detection models...",
                     "progress": 37,
                 })
 

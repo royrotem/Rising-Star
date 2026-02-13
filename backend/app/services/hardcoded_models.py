@@ -1,16 +1,20 @@
 """
 Hard-Coded Anomaly Detection Models
 
-Five lightweight, deterministic algorithms that require no pre-trained model
+Nine lightweight, deterministic algorithms that require no pre-trained model
 files.  They operate purely on the numeric columns of the ingested data
 using classical statistical / rule-based techniques.
 
 Algorithms:
-  1. Z-Score Detector          — flags values > k standard deviations from mean
-  2. IQR Outlier Detector      — inter-quartile-range fence method
-  3. Moving Average Deviation  — sliding-window mean vs actual value
-  4. Min-Max Boundary Checker  — values outside [global_min, global_max] bands
-  5. Isolation Score Detector   — simplified isolation-forest-style random splits
+  1. Z-Score Detector                — flags values > k standard deviations from mean
+  2. IQR Outlier Detector            — inter-quartile-range fence method
+  3. Moving Average Deviation        — sliding-window mean vs actual value
+  4. Min-Max Boundary Checker        — values outside [global_min, global_max] bands
+  5. Isolation Score Detector        — simplified isolation-forest-style random splits
+  6. DBSCAN Outlier Detector         — density-based clustering, noise points = anomalies
+  7. Local Outlier Factor (LOF)      — local density ratio anomaly scoring
+  8. Elliptic Envelope Detector      — robust covariance (Mahalanobis distance)
+  9. EWMA Control Chart Detector     — exponentially weighted moving average deviation
 """
 
 import asyncio
@@ -21,6 +25,15 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+
+try:
+    from sklearn.cluster import DBSCAN
+    from sklearn.neighbors import LocalOutlierFactor
+    from sklearn.covariance import EllipticEnvelope
+    from sklearn.preprocessing import StandardScaler
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
 
 logger = logging.getLogger("uaie.hardcoded_models")
 
@@ -415,6 +428,382 @@ class IsolationScoreDetector:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 6. DBSCAN Outlier Detector
+# ═══════════════════════════════════════════════════════════════════
+
+class DBSCANOutlierDetector:
+    """Uses DBSCAN clustering to identify noise points (label = -1) as
+    anomalies.  DBSCAN is effective at finding points in low-density
+    regions without assuming any particular distribution shape.
+
+    Parameters are auto-tuned: eps is derived from the k-nearest-neighbour
+    distance distribution, and min_samples scales with dataset size.
+    """
+
+    name = "DBSCAN Outlier Detector"
+
+    def __init__(self, eps: Optional[float] = None, min_samples: Optional[int] = None,
+                 max_anomalies: int = 50) -> None:
+        self.eps = eps
+        self.min_samples = min_samples
+        self.max_anomalies = max_anomalies
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        if not HAS_SKLEARN:
+            return []
+
+        numeric = df.select_dtypes(include=["number"]).dropna(axis=1, how="all").fillna(0)
+        if numeric.empty or len(numeric) < 20 or numeric.shape[1] < 2:
+            return []
+
+        scaler = StandardScaler()
+        X = scaler.fit_transform(numeric.values)
+
+        # Auto-tune eps using k-distance heuristic (k = min_samples)
+        min_samples = self.min_samples or max(5, len(X) // 50)
+        if self.eps is None:
+            from sklearn.neighbors import NearestNeighbors
+            nn = NearestNeighbors(n_neighbors=min_samples)
+            nn.fit(X)
+            distances, _ = nn.kneighbors(X)
+            k_distances = np.sort(distances[:, -1])
+            # Use the "knee" — 90th percentile of k-distances
+            eps = float(np.percentile(k_distances, 90))
+            eps = max(eps, 0.5)  # floor
+        else:
+            eps = self.eps
+
+        db = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1)
+        labels = db.fit_predict(X)
+
+        noise_indices = np.where(labels == -1)[0]
+        if len(noise_indices) == 0:
+            return []
+
+        # Score each noise point by distance to nearest cluster centroid
+        cluster_labels = set(labels) - {-1}
+        if cluster_labels:
+            centroids = np.array([X[labels == c].mean(axis=0) for c in cluster_labels])
+        else:
+            centroids = np.array([X.mean(axis=0)])
+
+        anomalies: List[Dict] = []
+        for idx in noise_indices[:self.max_anomalies]:
+            point = X[idx]
+            min_dist = float(np.min(np.linalg.norm(centroids - point, axis=1)))
+            score = min(min_dist / 5.0, 1.0)
+            severity = _score_to_severity(score)
+
+            # Top deviating features
+            col_means = X.mean(axis=0)
+            col_stds = X.std(axis=0)
+            col_stds[col_stds == 0] = 1
+            abs_z = np.abs((point - col_means) / col_stds)
+            top_feat_idx = np.argsort(abs_z)[-3:][::-1]
+            top_features = [numeric.columns[j] for j in top_feat_idx]
+
+            anomalies.append(_build_anomaly(
+                anomaly_type="hardcoded_dbscan",
+                title=f"DBSCAN noise point at row {idx}",
+                description=(
+                    f"Row {idx} was classified as noise by DBSCAN clustering "
+                    f"(eps={eps:.3f}, min_samples={min_samples}). "
+                    f"Distance to nearest cluster: {min_dist:.3f}. "
+                    f"Top deviating features: {', '.join(top_features)}."
+                ),
+                severity=severity,
+                confidence=round(score, 4),
+                affected_fields=top_features,
+                index=int(idx),
+                detected_by=self.name,
+                model_metadata={
+                    "distance_to_cluster": round(min_dist, 4),
+                    "eps": round(eps, 4),
+                    "min_samples": min_samples,
+                    "n_clusters": len(cluster_labels),
+                    "n_noise": len(noise_indices),
+                },
+            ))
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 7. Local Outlier Factor (LOF) Detector
+# ═══════════════════════════════════════════════════════════════════
+
+class LOFDetector:
+    """Local Outlier Factor measures the local deviation of density of a
+    given sample with respect to its neighbours.  Points with substantially
+    lower local density than their neighbours are considered outliers.
+
+    sklearn's LOF returns negative_outlier_factor_ where more negative = more
+    anomalous.  We normalise this to a 0-1 score.
+    """
+
+    name = "Local Outlier Factor"
+
+    def __init__(self, n_neighbors: int = 20, contamination: float = 0.05,
+                 max_anomalies: int = 50) -> None:
+        self.n_neighbors = n_neighbors
+        self.contamination = contamination
+        self.max_anomalies = max_anomalies
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        if not HAS_SKLEARN:
+            return []
+
+        numeric = df.select_dtypes(include=["number"]).dropna(axis=1, how="all").fillna(0)
+        if numeric.empty or len(numeric) < 30 or numeric.shape[1] < 2:
+            return []
+
+        scaler = StandardScaler()
+        X = scaler.fit_transform(numeric.values)
+
+        n_neighbors = min(self.n_neighbors, len(X) - 1)
+        lof = LocalOutlierFactor(
+            n_neighbors=n_neighbors,
+            contamination=self.contamination,
+            novelty=False,
+            n_jobs=-1,
+        )
+        labels = lof.fit_predict(X)
+        scores = -lof.negative_outlier_factor_  # higher = more anomalous (>1 is normal boundary)
+
+        outlier_indices = np.where(labels == -1)[0]
+        if len(outlier_indices) == 0:
+            return []
+
+        # Sort by LOF score descending
+        sorted_indices = outlier_indices[np.argsort(scores[outlier_indices])[::-1]]
+
+        anomalies: List[Dict] = []
+        for idx in sorted_indices[:self.max_anomalies]:
+            lof_score = float(scores[idx])
+            # Normalise: LOF > 1 is anomalous; map to 0-1 range
+            norm_score = min((lof_score - 1.0) / 2.0, 1.0)
+            norm_score = max(norm_score, 0.1)
+            severity = _score_to_severity(norm_score)
+
+            point = X[idx]
+            col_means = X.mean(axis=0)
+            col_stds = X.std(axis=0)
+            col_stds[col_stds == 0] = 1
+            abs_z = np.abs((point - col_means) / col_stds)
+            top_feat_idx = np.argsort(abs_z)[-3:][::-1]
+            top_features = [numeric.columns[j] for j in top_feat_idx]
+
+            anomalies.append(_build_anomaly(
+                anomaly_type="hardcoded_lof",
+                title=f"LOF outlier at row {idx}",
+                description=(
+                    f"Row {idx} has a Local Outlier Factor of {lof_score:.3f} "
+                    f"(>1.0 = anomalous). Its local density is significantly "
+                    f"lower than its {n_neighbors} nearest neighbours. "
+                    f"Top features: {', '.join(top_features)}."
+                ),
+                severity=severity,
+                confidence=round(norm_score, 4),
+                affected_fields=top_features,
+                index=int(idx),
+                detected_by=self.name,
+                model_metadata={
+                    "lof_score": round(lof_score, 4),
+                    "n_neighbors": n_neighbors,
+                    "contamination": self.contamination,
+                },
+            ))
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 8. Elliptic Envelope (Robust Covariance) Detector
+# ═══════════════════════════════════════════════════════════════════
+
+class EllipticEnvelopeDetector:
+    """Fits a robust covariance estimate (Minimum Covariance Determinant)
+    and uses the Mahalanobis distance to flag multivariate outliers.
+
+    Unlike univariate methods, this catches points that are only anomalous
+    when considering the joint distribution of multiple features.
+    """
+
+    name = "Elliptic Envelope"
+
+    def __init__(self, contamination: float = 0.05, max_anomalies: int = 50) -> None:
+        self.contamination = contamination
+        self.max_anomalies = max_anomalies
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        if not HAS_SKLEARN:
+            return []
+
+        numeric = df.select_dtypes(include=["number"]).dropna(axis=1, how="all").fillna(0)
+        if numeric.empty or len(numeric) < 30 or numeric.shape[1] < 2:
+            return []
+
+        # Limit features to avoid singular covariance matrix
+        # Use at most 15 columns with highest variance
+        if numeric.shape[1] > 15:
+            variances = numeric.var().sort_values(ascending=False)
+            numeric = numeric[variances.head(15).index]
+
+        scaler = StandardScaler()
+        X = scaler.fit_transform(numeric.values)
+
+        try:
+            ee = EllipticEnvelope(
+                contamination=self.contamination,
+                support_fraction=max(0.5, 1.0 - self.contamination * 2),
+                random_state=42,
+            )
+            labels = ee.fit_predict(X)
+            mahal_distances = ee.mahalanobis(X)
+        except Exception as exc:
+            logger.warning("EllipticEnvelope failed: %s", exc)
+            return []
+
+        outlier_indices = np.where(labels == -1)[0]
+        if len(outlier_indices) == 0:
+            return []
+
+        # Normalise Mahalanobis distance to 0-1 score
+        max_dist = mahal_distances.max()
+        if max_dist == 0:
+            return []
+
+        sorted_indices = outlier_indices[np.argsort(mahal_distances[outlier_indices])[::-1]]
+
+        anomalies: List[Dict] = []
+        for idx in sorted_indices[:self.max_anomalies]:
+            dist = float(mahal_distances[idx])
+            score = min(dist / max_dist, 1.0)
+            severity = _score_to_severity(score)
+
+            point = X[idx]
+            col_means = X.mean(axis=0)
+            col_stds = X.std(axis=0)
+            col_stds[col_stds == 0] = 1
+            abs_z = np.abs((point - col_means) / col_stds)
+            top_feat_idx = np.argsort(abs_z)[-3:][::-1]
+            top_features = [numeric.columns[j] for j in top_feat_idx]
+
+            anomalies.append(_build_anomaly(
+                anomaly_type="hardcoded_elliptic_envelope",
+                title=f"Multivariate outlier at row {idx}",
+                description=(
+                    f"Row {idx} has Mahalanobis distance {dist:.2f} from the "
+                    f"robust covariance centre — flagged by Elliptic Envelope. "
+                    f"This point is anomalous in the joint distribution of features. "
+                    f"Top contributors: {', '.join(top_features)}."
+                ),
+                severity=severity,
+                confidence=round(score, 4),
+                affected_fields=top_features,
+                index=int(idx),
+                detected_by=self.name,
+                model_metadata={
+                    "mahalanobis_distance": round(dist, 4),
+                    "contamination": self.contamination,
+                },
+            ))
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 9. EWMA Control Chart Detector
+# ═══════════════════════════════════════════════════════════════════
+
+class EWMAControlChartDetector:
+    """Exponentially Weighted Moving Average (EWMA) control chart.
+
+    EWMA gives more weight to recent observations, making it sensitive to
+    small, sustained shifts while being robust to isolated spikes.
+    Control limits are calculated analytically from the smoothing parameter
+    λ and the number of observations.
+    """
+
+    name = "EWMA Control Chart"
+
+    def __init__(self, lam: float = 0.2, sigma_limit: float = 3.0,
+                 max_anomalies_per_col: int = 20) -> None:
+        self.lam = lam       # smoothing parameter (0 < λ ≤ 1)
+        self.sigma_limit = sigma_limit  # control limit multiplier
+        self.max_per_col = max_anomalies_per_col
+
+    def detect(self, df: pd.DataFrame) -> List[Dict]:
+        numeric = df.select_dtypes(include=["number"])
+        if numeric.empty or len(numeric) < 15:
+            return []
+
+        anomalies: List[Dict] = []
+        lam = self.lam
+
+        for col in numeric.columns:
+            series = numeric[col].dropna()
+            if len(series) < 15:
+                continue
+
+            mu = series.mean()
+            sigma = series.std()
+            if sigma == 0:
+                continue
+
+            values = series.values
+            ewma = np.zeros(len(values))
+            ewma[0] = mu  # start at process mean
+
+            for i in range(1, len(values)):
+                ewma[i] = lam * values[i] + (1 - lam) * ewma[i - 1]
+
+            # Time-varying control limits
+            # UCL/LCL = mu ± L * sigma * sqrt(λ/(2-λ) * (1-(1-λ)^(2i)))
+            indices = np.arange(1, len(values) + 1, dtype=float)
+            factor = np.sqrt(lam / (2 - lam) * (1 - (1 - lam) ** (2 * indices)))
+            ucl = mu + self.sigma_limit * sigma * factor
+            lcl = mu - self.sigma_limit * sigma * factor
+
+            breach_mask = (ewma > ucl) | (ewma < lcl)
+            breach_indices = np.where(breach_mask)[0]
+
+            col_count = 0
+            for idx in breach_indices:
+                if col_count >= self.max_per_col:
+                    break
+
+                deviation = abs(ewma[idx] - mu) / sigma
+                score = min(float(deviation) / (self.sigma_limit * 2), 1.0)
+                severity = _score_to_severity(score)
+
+                direction = "above UCL" if ewma[idx] > ucl[idx] else "below LCL"
+
+                anomalies.append(_build_anomaly(
+                    anomaly_type="hardcoded_ewma",
+                    title=f"EWMA control breach in '{col}' at row {int(series.index[idx])}",
+                    description=(
+                        f"EWMA statistic ({ewma[idx]:.4g}) is {direction} "
+                        f"(λ={lam}, L={self.sigma_limit}). "
+                        f"This indicates a sustained shift from the process mean ({mu:.4g})."
+                    ),
+                    severity=severity,
+                    confidence=round(score, 4),
+                    affected_fields=[col],
+                    index=int(series.index[idx]),
+                    detected_by=self.name,
+                    model_metadata={
+                        "ewma_value": round(float(ewma[idx]), 4),
+                        "ucl": round(float(ucl[idx]), 4),
+                        "lcl": round(float(lcl[idx]), 4),
+                        "process_mean": round(float(mu), 4),
+                        "lambda": lam,
+                        "sigma_limit": self.sigma_limit,
+                    },
+                ))
+                col_count += 1
+
+        return anomalies
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Hard-Coded Model Orchestrator
 # ═══════════════════════════════════════════════════════════════════
 
@@ -427,8 +816,15 @@ class HardcodedModelOrchestrator:
         self.moving_avg = MovingAverageDeviationDetector()
         self.minmax = MinMaxBoundaryChecker()
         self.isolation = IsolationScoreDetector()
-        self.detectors = [self.zscore, self.iqr, self.moving_avg,
-                          self.minmax, self.isolation]
+        self.dbscan = DBSCANOutlierDetector()
+        self.lof = LOFDetector()
+        self.elliptic = EllipticEnvelopeDetector()
+        self.ewma = EWMAControlChartDetector()
+        self.detectors = [
+            self.zscore, self.iqr, self.moving_avg,
+            self.minmax, self.isolation,
+            self.dbscan, self.lof, self.elliptic, self.ewma,
+        ]
 
     @property
     def models_available(self) -> Dict[str, bool]:

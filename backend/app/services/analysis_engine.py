@@ -7,6 +7,7 @@ natural language explanations and root cause analysis.
 
 import pandas as pd
 import numpy as np
+from scipy import stats as scipy_stats
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
@@ -263,6 +264,14 @@ class AnalysisEngine:
         # Layer 6: Rate of Change Analysis
         rate_anomalies = self._detect_rate_of_change_anomalies(df, domain)
         anomalies.extend(rate_anomalies)
+
+        # Layer 7: CUSUM (Cumulative Sum) Change Detection
+        cusum_anomalies = self._detect_cusum_anomalies(df, domain)
+        anomalies.extend(cusum_anomalies)
+
+        # Layer 8: Grubbs' Test for Outliers
+        grubbs_anomalies = self._detect_grubbs_anomalies(df, domain)
+        anomalies.extend(grubbs_anomalies)
 
         # Generate natural language explanations for all anomalies
         for anomaly in anomalies:
@@ -658,6 +667,173 @@ class AnalysisEngine:
                     impact_score=min(100, accel_outliers / len(series) * 500),
                     row_indices=accel_rows,
                 ))
+
+        return anomalies
+
+    def _detect_cusum_anomalies(self, df: pd.DataFrame, domain: Dict) -> List[Anomaly]:
+        """Layer 7: Cumulative Sum (CUSUM) change-point detection.
+
+        CUSUM tracks the cumulative deviation of a process from its target mean.
+        When the cumulative sum exceeds a drift-allowance threshold it signals
+        a sustained shift — useful for detecting slow drifts that z-score misses.
+        """
+        anomalies = []
+        critical_params = domain.get("critical_parameters", [])
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+        for col in numeric_cols:
+            series = df[col].dropna()
+            if len(series) < 30:
+                continue
+
+            mean = series.mean()
+            std = series.std()
+            if std == 0:
+                continue
+
+            # CUSUM parameters (standard industrial defaults)
+            k = 0.5 * std   # slack / allowance (half-sigma)
+            h = 5.0 * std   # decision threshold (five-sigma cumulative)
+
+            # Upper and lower CUSUM
+            s_pos = np.zeros(len(series))
+            s_neg = np.zeros(len(series))
+            values = series.values
+
+            for i in range(1, len(values)):
+                s_pos[i] = max(0, s_pos[i - 1] + (values[i] - mean) - k)
+                s_neg[i] = max(0, s_neg[i - 1] - (values[i] - mean) - k)
+
+            # Find breach points
+            breach_mask = (s_pos > h) | (s_neg > h)
+            breach_indices = np.where(breach_mask)[0]
+
+            if len(breach_indices) == 0:
+                continue
+
+            # Only report if it's a meaningful shift (not just a single spike)
+            # Group consecutive breaches and report the first point of each group
+            change_points = []
+            prev = -10
+            for idx in breach_indices:
+                if idx - prev > 5:  # new group if gap > 5 rows
+                    change_points.append(int(series.index[idx]))
+                prev = idx
+
+            if not change_points:
+                continue
+
+            is_critical = any(p in col.lower() for p in critical_params)
+            severity = Severity.HIGH if is_critical else Severity.MEDIUM
+
+            anomalies.append(Anomaly(
+                id=f"cusum_{col}_{datetime.utcnow().timestamp()}",
+                anomaly_type=AnomalyType.TREND_CHANGE,
+                severity=severity,
+                field_name=col,
+                title=f"CUSUM shift detected in {col}",
+                description=(
+                    f"Cumulative sum analysis detected {len(change_points)} sustained "
+                    f"shift(s) in {col} from its baseline mean ({mean:.4g}). "
+                    f"CUSUM is sensitive to small, persistent drifts that other "
+                    f"methods may miss (k={k:.3g}, h={h:.3g})."
+                ),
+                value={
+                    "change_points": change_points[:10],
+                    "n_shifts": len(change_points),
+                    "baseline_mean": float(mean),
+                    "cusum_k": float(k),
+                    "cusum_h": float(h),
+                },
+                confidence=0.82,
+                impact_score=min(100, len(change_points) * 15),
+                row_indices=change_points[:50],
+            ))
+
+        return anomalies
+
+    def _detect_grubbs_anomalies(self, df: pd.DataFrame, domain: Dict) -> List[Anomaly]:
+        """Layer 8: Grubbs' Test for statistical outliers.
+
+        Grubbs' test uses the t-distribution to determine whether the most
+        extreme value in a sample is an outlier at a given significance level.
+        It is applied iteratively (removing outliers one at a time) up to a
+        maximum count.
+        """
+        anomalies = []
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        alpha = 0.05  # significance level
+        max_outliers_per_col = 15
+
+        for col in numeric_cols:
+            series = df[col].dropna()
+            if len(series) < 8:  # Grubbs needs a reasonable sample
+                continue
+
+            working = series.copy()
+            outlier_indices = []
+
+            for _ in range(max_outliers_per_col):
+                n = len(working)
+                if n < 8:
+                    break
+                mean = working.mean()
+                std = working.std()
+                if std == 0:
+                    break
+
+                # Grubbs statistic: maximum absolute deviation / std
+                abs_dev = (working - mean).abs()
+                max_idx = abs_dev.idxmax()
+                g_stat = float(abs_dev[max_idx] / std)
+
+                # Critical value from t-distribution
+                t_val = scipy_stats.t.ppf(1 - alpha / (2 * n), n - 2)
+                g_crit = ((n - 1) / np.sqrt(n)) * np.sqrt(t_val ** 2 / (n - 2 + t_val ** 2))
+
+                if g_stat > g_crit:
+                    outlier_indices.append(int(max_idx))
+                    working = working.drop(max_idx)
+                else:
+                    break  # no more outliers at this significance level
+
+            if not outlier_indices:
+                continue
+
+            # Determine severity by how extreme the outliers are
+            outlier_vals = series.loc[outlier_indices]
+            global_mean = series.mean()
+            global_std = series.std()
+            max_z = float(((outlier_vals - global_mean) / global_std).abs().max()) if global_std > 0 else 0
+
+            if max_z > 4:
+                severity = Severity.HIGH
+            elif max_z > 3:
+                severity = Severity.MEDIUM
+            else:
+                severity = Severity.LOW
+
+            anomalies.append(Anomaly(
+                id=f"grubbs_{col}_{datetime.utcnow().timestamp()}",
+                anomaly_type=AnomalyType.STATISTICAL_OUTLIER,
+                severity=severity,
+                field_name=col,
+                title=f"Grubbs' test outliers in {col}",
+                description=(
+                    f"Iterative Grubbs' test (α={alpha}) identified "
+                    f"{len(outlier_indices)} statistically significant outlier(s) "
+                    f"in {col}. Max z-score: {max_z:.2f}."
+                ),
+                value={
+                    "n_outliers": len(outlier_indices),
+                    "max_z_score": max_z,
+                    "alpha": alpha,
+                    "outlier_values": [float(series.loc[i]) for i in outlier_indices[:5]],
+                },
+                confidence=min(0.95, 0.7 + max_z / 20),
+                impact_score=min(100, len(outlier_indices) * 8),
+                row_indices=outlier_indices,
+            ))
 
         return anomalies
 
