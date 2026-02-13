@@ -286,16 +286,88 @@ async def analyze_system_stream(
                     if meta.get("description"):
                         metadata_context = meta["description"]
 
-                    t_ai_start = time.time()
-                    ai_result = await ai_orchestrator.run_analysis(
-                        system_id=system_id,
-                        system_type=system_type,
-                        system_name=system_name,
-                        data_profile=data_profile,
-                        metadata_context=metadata_context,
-                        enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
-                        selected_agents=selected_agents,
+                    # Queue for receiving batch-complete events from the orchestrator
+                    batch_event_queue: asyncio.Queue = asyncio.Queue()
+
+                    async def on_batch_complete(batch_num, total_batches, batch_agents, batch_results):
+                        """Called by the orchestrator after each agent batch finishes."""
+                        await batch_event_queue.put((batch_num, total_batches, batch_agents, batch_results))
+
+                    # Launch orchestrator as a background task so we can yield
+                    # progress events as batches complete
+                    ai_task = asyncio.create_task(
+                        ai_orchestrator.run_analysis(
+                            system_id=system_id,
+                            system_type=system_type,
+                            system_name=system_name,
+                            data_profile=data_profile,
+                            metadata_context=metadata_context,
+                            enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
+                            selected_agents=selected_agents,
+                            on_batch_complete=on_batch_complete,
+                        )
                     )
+                    t_ai_start = time.time()
+
+                    # Drain batch-complete events while the orchestrator runs
+                    while not ai_task.done():
+                        try:
+                            batch_num, total_batches, batch_agents, batch_results = await asyncio.wait_for(
+                                batch_event_queue.get(), timeout=0.5,
+                            )
+                            # Emit per-agent statuses for this batch
+                            for agent_obj, res in zip(batch_agents, batch_results):
+                                a_name = agent_obj.name
+                                if isinstance(res, Exception):
+                                    yield _sse_event("agent_complete", {
+                                        "agent": a_name,
+                                        "status": "error",
+                                        "findings": 0,
+                                        "perspective": "",
+                                    })
+                                else:
+                                    yield _sse_event("agent_complete", {
+                                        "agent": a_name,
+                                        "status": "success",
+                                        "findings": len(res) if res else 0,
+                                        "perspective": getattr(agent_obj, "perspective", ""),
+                                    })
+                                await asyncio.sleep(0.02)
+
+                            # Update progress proportionally: 55% → 85% across batches
+                            batch_progress = 55 + int(30 * batch_num / total_batches)
+                            yield _sse_event("stage", {
+                                "stage": "ai_agents_batch",
+                                "message": f"Agent batch {batch_num}/{total_batches} complete",
+                                "progress": batch_progress,
+                            })
+                        except asyncio.TimeoutError:
+                            continue
+
+                    # Drain any remaining events in the queue
+                    while not batch_event_queue.empty():
+                        batch_num, total_batches, batch_agents, batch_results = batch_event_queue.get_nowait()
+                        for agent_obj, res in zip(batch_agents, batch_results):
+                            a_name = agent_obj.name
+                            if isinstance(res, Exception):
+                                yield _sse_event("agent_complete", {
+                                    "agent": a_name, "status": "error", "findings": 0, "perspective": "",
+                                })
+                            else:
+                                yield _sse_event("agent_complete", {
+                                    "agent": a_name, "status": "success",
+                                    "findings": len(res) if res else 0,
+                                    "perspective": getattr(agent_obj, "perspective", ""),
+                                })
+                            await asyncio.sleep(0.02)
+                        batch_progress = 55 + int(30 * batch_num / total_batches)
+                        yield _sse_event("stage", {
+                            "stage": "ai_agents_batch",
+                            "message": f"Agent batch {batch_num}/{total_batches} complete",
+                            "progress": batch_progress,
+                        })
+
+                    ai_result = ai_task.result()
                     t_ai_elapsed = round(time.time() - t_ai_start, 2)
 
                     logger.info("[Stage 3] AI orchestrator finished in %.2fs", t_ai_elapsed)
@@ -306,24 +378,7 @@ async def analyze_system_stream(
                                     ai_result.get("total_findings_raw", 0),
                                     ai_result.get("total_anomalies_unified", 0))
 
-                    # Emit per-agent statuses
-                    ai_agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
-                    for idx, st in enumerate(ai_agent_statuses):
-                        agent_name = st.get("agent", f"Agent {idx+1}")
-                        agent_status = st.get("status", "unknown")
-                        agent_findings = st.get("findings", 0)
-                        logger.info("[Stage 3]   agent '%s': status=%s, findings=%d%s",
-                                    agent_name, agent_status, agent_findings,
-                                    f", error={st.get('error')}" if st.get("error") else "")
-                        yield _sse_event("agent_complete", {
-                            "agent": agent_name,
-                            "status": agent_status,
-                            "findings": agent_findings,
-                            "perspective": st.get("perspective", ""),
-                        })
-                        await asyncio.sleep(0.05)
-
-                    agent_statuses = ai_agent_statuses
+                    agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
 
                     merge_ai_anomalies(anomalies, ai_result)
 

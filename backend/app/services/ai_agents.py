@@ -2306,6 +2306,7 @@ class AgentOrchestrator:
         metadata_context: str = "",
         enable_web_grounding: bool = True,
         selected_agents: Optional[List[str]] = None,
+        on_batch_complete: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Run agents in parallel and unify results.
 
@@ -2366,6 +2367,9 @@ class AgentOrchestrator:
                 )
                 results.extend(batch_results)
                 logger.info("[Orchestrator] Batch %d/%d complete: %d results", batch_idx + 1, len(batches), len(batch_results))
+
+                if on_batch_complete:
+                    await on_batch_complete(batch_idx + 1, len(batches), batch, batch_results)
 
             except asyncio.TimeoutError:
                 logger.error("[Orchestrator] Batch %d TIMEOUT — collecting partial results", batch_idx + 1)
