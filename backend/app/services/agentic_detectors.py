@@ -726,20 +726,44 @@ class AgenticDetector(BaseAgent):
 
     async def analyze(self, system_type: str, system_name: str,
                       data_profile: Dict, metadata_context: str = "") -> List[AgentFinding]:
-        """Run multi-turn tool-use analysis loop via the configured provider."""
+        """Run multi-turn tool-use analysis loop.
+
+        Tries the configured provider first.  If that provider has no API key,
+        cascades through the other providers before falling back to the
+        heuristic (non-LLM) fallback.  This means: if the user hasn't
+        entered *any* key, nothing crashes — the agent simply runs its
+        rule-based fallback and logs a warning.
+        """
         if not self._toolkit:
             logger.warning("[%s] No toolkit — using fallback", self.name)
             return self._fallback_analyze(system_type, data_profile)
 
-        provider = self._resolve_provider()
-        logger.info("[%s] Using LLM provider: %s", self.name, provider)
+        preferred = self._resolve_provider()
 
-        if provider == LLM_PROVIDER_OPENAI:
-            return await self._run_openai_loop(system_type, system_name, data_profile, metadata_context)
-        elif provider == LLM_PROVIDER_GEMINI:
-            return await self._run_gemini_loop(system_type, system_name, data_profile, metadata_context)
-        else:
-            return await self._run_anthropic_loop(system_type, system_name, data_profile, metadata_context)
+        # Build a priority-ordered list: preferred first, then the others
+        all_providers = [LLM_PROVIDER_ANTHROPIC, LLM_PROVIDER_OPENAI, LLM_PROVIDER_GEMINI]
+        order = [preferred] + [p for p in all_providers if p != preferred]
+
+        for provider in order:
+            has_key = (
+                (provider == LLM_PROVIDER_ANTHROPIC and _get_api_key()) or
+                (provider == LLM_PROVIDER_OPENAI and HAS_OPENAI and _get_openai_api_key()) or
+                (provider == LLM_PROVIDER_GEMINI and HAS_GEMINI and _get_gemini_api_key())
+            )
+            if not has_key:
+                continue
+
+            logger.info("[%s] Using LLM provider: %s", self.name, provider)
+            if provider == LLM_PROVIDER_OPENAI:
+                return await self._run_openai_loop(system_type, system_name, data_profile, metadata_context)
+            elif provider == LLM_PROVIDER_GEMINI:
+                return await self._run_gemini_loop(system_type, system_name, data_profile, metadata_context)
+            else:
+                return await self._run_anthropic_loop(system_type, system_name, data_profile, metadata_context)
+
+        # No provider has a key — skip gracefully
+        logger.warning("[%s] No LLM API key configured — running heuristic fallback only", self.name)
+        return self._fallback_analyze(system_type, data_profile)
 
     # ── Anthropic tool-use loop (original) ────────────────────────
 
@@ -823,8 +847,8 @@ class AgenticDetector(BaseAgent):
                                data_profile: Dict, metadata_context: str) -> List[AgentFinding]:
         api_key = _get_openai_api_key()
         if not HAS_OPENAI or not api_key:
-            logger.warning("[%s] OpenAI not available — falling back to Anthropic", self.name)
-            return await self._run_anthropic_loop(system_type, system_name, data_profile, metadata_context)
+            logger.warning("[%s] OpenAI not available — using fallback", self.name)
+            return self._fallback_analyze(system_type, data_profile)
 
         client = AsyncOpenAI(api_key=api_key)
 
@@ -905,8 +929,8 @@ class AgenticDetector(BaseAgent):
                                data_profile: Dict, metadata_context: str) -> List[AgentFinding]:
         api_key = _get_gemini_api_key()
         if not HAS_GEMINI or not api_key:
-            logger.warning("[%s] Gemini not available — falling back to Anthropic", self.name)
-            return await self._run_anthropic_loop(system_type, system_name, data_profile, metadata_context)
+            logger.warning("[%s] Gemini not available — using fallback", self.name)
+            return self._fallback_analyze(system_type, data_profile)
 
         genai.configure(api_key=api_key)
 
