@@ -45,6 +45,8 @@ export interface StreamState {
   message: string;
   /** Completed detection layers (up to 6). */
   layers: LayerEvent[];
+  /** Completed hard-coded model results. */
+  hardcodedModels: ModelEvent[];
   /** Completed ML model results. */
   models: ModelEvent[];
   /** Completed AI agent results. */
@@ -60,6 +62,7 @@ const INITIAL_STATE: StreamState = {
   progress: 0,
   message: '',
   layers: [],
+  hardcodedModels: [],
   models: [],
   agents: [],
   result: null,
@@ -104,6 +107,14 @@ export function useAnalysisStream() {
       setState((prev) => ({
         ...prev,
         layers: [...prev.layers, data],
+      }));
+    });
+
+    es.addEventListener('hardcoded_model_complete', (e: MessageEvent) => {
+      const data: ModelEvent = JSON.parse(e.data);
+      setState((prev) => ({
+        ...prev,
+        hardcodedModels: [...prev.hardcodedModels, data],
       }));
     });
 

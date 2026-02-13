@@ -24,6 +24,7 @@ from ..services.ai_agents import orchestrator as ai_orchestrator, ALL_AGENT_NAME
 # from ..services.agentic_analyzers import agentic_orchestrator
 from ..services.recommendation import build_data_profile
 from ..services.ml_models import ml_orchestrator
+from ..services.hardcoded_models import hardcoded_orchestrator
 from ..utils import (
     sanitize_for_json,
     anomaly_to_dict,
@@ -157,6 +158,51 @@ async def analyze_system_stream(
                 "message": f"Rule engine found {len(anomalies)} anomalies",
                 "progress": 35,
             })
+
+            # ── Stage 2.25: Hard-coded anomaly detection models (5 algorithms) ──
+            hc_result: Dict[str, Any] = {
+                "anomalies": [], "model_statuses": [], "total_findings": 0, "models_available": {},
+            }
+            try:
+                yield _sse_event("stage", {
+                    "stage": "hardcoded_models",
+                    "message": "Running hard-coded anomaly detection algorithms...",
+                    "progress": 36,
+                })
+
+                t_hc_start = time.time()
+                hc_result = await hardcoded_orchestrator.run_all(records)
+                t_hc_elapsed = round(time.time() - t_hc_start, 2)
+
+                logger.info("[Stage 2.25] Hard-coded models finished in %.2fs: %d findings",
+                            t_hc_elapsed, hc_result.get("total_findings", 0))
+
+                for ms in hc_result.get("model_statuses", []):
+                    ms["elapsed_seconds"] = t_hc_elapsed
+                    yield _sse_event("hardcoded_model_complete", {
+                        "model": ms.get("model", "Unknown"),
+                        "status": ms.get("status", "unknown"),
+                        "findings": ms.get("findings", 0),
+                        "elapsed_seconds": t_hc_elapsed,
+                    })
+                    await asyncio.sleep(0.05)
+
+                anomalies.extend(hc_result.get("anomalies", []))
+
+                yield _sse_event("stage", {
+                    "stage": "hardcoded_models_complete",
+                    "message": f"Hard-coded models found {hc_result.get('total_findings', 0)} anomalies",
+                    "progress": 37,
+                })
+
+            except Exception as e:
+                logger.error("[Stage 2.25] Hard-coded models EXCEPTION: %s: %s", type(e).__name__, e)
+                logger.error(traceback.format_exc())
+                yield _sse_event("stage", {
+                    "stage": "hardcoded_models_error",
+                    "message": f"Hard-coded models failed (continuing): {e}",
+                    "progress": 37,
+                })
 
             # ── Stage 2.5: ML model inference ──
             ml_result: Dict[str, Any] = {
@@ -334,6 +380,11 @@ async def analyze_system_stream(
                 "insights": result.insights,
                 "insights_summary": result.summary,
                 "recommendations": result.recommendations,
+                "hardcoded_analysis": {
+                    "models_available": hc_result.get("models_available", {}),
+                    "model_statuses": hc_result.get("model_statuses", []),
+                    "total_findings": hc_result.get("total_findings", 0),
+                },
                 "ml_analysis": {
                     "models_available": ml_result.get("models_available", {}),
                     "model_statuses": ml_result.get("model_statuses", []),
