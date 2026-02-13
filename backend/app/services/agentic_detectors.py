@@ -49,8 +49,25 @@ try:
 except ImportError:
     HAS_ANTHROPIC = False
 
+try:
+    from openai import AsyncOpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
+try:
+    import google.generativeai as genai
+    HAS_GEMINI = True
+except ImportError:
+    HAS_GEMINI = False
+
 # Maximum tool-use turns per agent (prevents runaway loops)
 MAX_TOOL_TURNS = 12
+
+# Supported LLM providers for agentic tool-use
+LLM_PROVIDER_ANTHROPIC = "anthropic"
+LLM_PROVIDER_OPENAI = "openai"
+LLM_PROVIDER_GEMINI = "gemini"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -562,23 +579,126 @@ def _safe_float(v: Any) -> Any:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Agentic Base Class — multi-turn tool-use loop
+# Provider helpers — convert tool schemas between formats
+# ═══════════════════════════════════════════════════════════════════
+
+def _tools_to_openai_format(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert our tool definitions (Anthropic format) to OpenAI function-calling format."""
+    openai_tools = []
+    for t in tools:
+        openai_tools.append({
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+            },
+        })
+    return openai_tools
+
+
+def _tools_to_gemini_declarations(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert our tool definitions to Gemini function-declaration format.
+
+    Gemini uses ``genai.protos.FunctionDeclaration`` but also accepts plain
+    dicts when passed through ``genai.protos.Tool``.  We build the dicts
+    manually so we don't need an import at module level.
+    """
+    declarations = []
+    for t in tools:
+        schema = t.get("input_schema", {"type": "object", "properties": {}})
+        # Gemini doesn't accept 'additionalProperties' or empty required arrays gracefully
+        props = {}
+        for pname, pdef in schema.get("properties", {}).items():
+            gprop: Dict[str, Any] = {"type_": pdef.get("type", "STRING").upper()}
+            if "description" in pdef:
+                gprop["description"] = pdef["description"]
+            if "enum" in pdef:
+                gprop["enum"] = pdef["enum"]
+            if pdef.get("type") == "array" and "items" in pdef:
+                gprop["type_"] = "ARRAY"
+                gprop["items"] = {"type_": pdef["items"].get("type", "STRING").upper()}
+            props[pname] = gprop
+        declarations.append({
+            "name": t["name"],
+            "description": t.get("description", ""),
+            "parameters": {
+                "type_": "OBJECT",
+                "properties": props,
+                "required": schema.get("required", []),
+            },
+        })
+    return declarations
+
+
+def _get_openai_api_key() -> str:
+    """Get OpenAI API key from settings or environment."""
+    try:
+        from ..api.app_settings import settings_store
+        ai = settings_store.get("ai", {})
+        key = ai.get("openai_api_key", "")
+        if key:
+            return key
+    except Exception:
+        pass
+    return os.environ.get("OPENAI_API_KEY", "")
+
+
+def _get_gemini_api_key() -> str:
+    """Get Gemini API key from settings or environment."""
+    try:
+        from ..api.app_settings import settings_store
+        ai = settings_store.get("ai", {})
+        key = ai.get("gemini_api_key", "")
+        if key:
+            return key
+    except Exception:
+        pass
+    return os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+
+
+def _detect_best_provider() -> str:
+    """Auto-detect the best available provider based on configured keys."""
+    if _get_api_key():  # Anthropic
+        return LLM_PROVIDER_ANTHROPIC
+    if _get_openai_api_key():
+        return LLM_PROVIDER_OPENAI
+    if _get_gemini_api_key():
+        return LLM_PROVIDER_GEMINI
+    return LLM_PROVIDER_ANTHROPIC  # default
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Agentic Base Class — multi-turn tool-use loop (multi-provider)
 # ═══════════════════════════════════════════════════════════════════
 
 class AgenticDetector(BaseAgent):
     """Base class for tool-using agentic detectors.
+
+    Supports multiple LLM providers for the agentic tool-use loop:
+      - **anthropic** (default): Claude via Anthropic SDK tool_use
+      - **openai**: GPT-4o via OpenAI SDK function calling
+      - **gemini**: Gemini via Google GenAI SDK function calling
+
+    The DataToolkit (9 tools) is shared across all providers — only the
+    LLM "brain" and its tool-call protocol differ.
 
     Subclasses define:
       - name, perspective
       - _system_prompt(system_type) → str
       - _initial_user_message(system_type, system_name, data_summary, metadata_context) → str
       - _fallback_analyze(system_type, data_profile) → List[AgentFinding]
-
-    The base class handles the multi-turn tool-use loop.
     """
 
     # Agentic detectors get slightly more time because they do multiple turns
     agent_timeout: int = 120
+
+    # Override per-agent or set globally.  None = auto-detect.
+    llm_provider: Optional[str] = None
+
+    # Model overrides per provider (subclass or set at runtime)
+    openai_model: str = "gpt-4o"
+    gemini_model: str = "gemini-2.0-flash"
 
     def __init__(self) -> None:
         super().__init__()
@@ -588,12 +708,46 @@ class AgenticDetector(BaseAgent):
         """Attach the data toolkit (called by the orchestrator before analyze)."""
         self._toolkit = toolkit
 
+    def _resolve_provider(self) -> str:
+        """Return the effective provider string."""
+        if self.llm_provider:
+            return self.llm_provider
+        # Check app settings for a global override
+        try:
+            from ..api.app_settings import settings_store
+            prov = settings_store.get("ai", {}).get("agentic_llm_provider", "")
+            if prov in (LLM_PROVIDER_ANTHROPIC, LLM_PROVIDER_OPENAI, LLM_PROVIDER_GEMINI):
+                return prov
+        except Exception:
+            pass
+        return _detect_best_provider()
+
+    # ── Main entry ────────────────────────────────────────────────
+
     async def analyze(self, system_type: str, system_name: str,
                       data_profile: Dict, metadata_context: str = "") -> List[AgentFinding]:
-        """Run multi-turn tool-use analysis loop."""
+        """Run multi-turn tool-use analysis loop via the configured provider."""
+        if not self._toolkit:
+            logger.warning("[%s] No toolkit — using fallback", self.name)
+            return self._fallback_analyze(system_type, data_profile)
+
+        provider = self._resolve_provider()
+        logger.info("[%s] Using LLM provider: %s", self.name, provider)
+
+        if provider == LLM_PROVIDER_OPENAI:
+            return await self._run_openai_loop(system_type, system_name, data_profile, metadata_context)
+        elif provider == LLM_PROVIDER_GEMINI:
+            return await self._run_gemini_loop(system_type, system_name, data_profile, metadata_context)
+        else:
+            return await self._run_anthropic_loop(system_type, system_name, data_profile, metadata_context)
+
+    # ── Anthropic tool-use loop (original) ────────────────────────
+
+    async def _run_anthropic_loop(self, system_type: str, system_name: str,
+                                  data_profile: Dict, metadata_context: str) -> List[AgentFinding]:
         self._init_client()
-        if not self.client or not self._toolkit:
-            logger.warning("[%s] No API client or no toolkit — using fallback", self.name)
+        if not self.client:
+            logger.warning("[%s] No Anthropic client — using fallback", self.name)
             return self._fallback_analyze(system_type, data_profile)
 
         data_summary = self._build_data_summary(data_profile)
@@ -603,7 +757,7 @@ class AgenticDetector(BaseAgent):
         tools = DataToolkit.tool_definitions()
         system_prompt = self._system_prompt(system_type)
 
-        logger.info("[%s] Starting agentic loop (max %d turns)...", self.name, MAX_TOOL_TURNS)
+        logger.info("[%s] Starting Anthropic agentic loop (max %d turns)...", self.name, MAX_TOOL_TURNS)
         t_start = time.time()
 
         for turn in range(MAX_TOOL_TURNS):
@@ -627,15 +781,12 @@ class AgenticDetector(BaseAgent):
                 logger.error("[%s] Turn %d failed: %s", self.name, turn + 1, exc)
                 break
 
-            # Process the response
             assistant_content = response.content
             messages.append({"role": "assistant", "content": assistant_content})
 
-            # Check if the model wants to use tools
             tool_uses = [b for b in assistant_content if b.type == "tool_use"]
 
             if not tool_uses:
-                # Model finished — extract findings from the text
                 text_blocks = [b.text for b in assistant_content if b.type == "text"]
                 full_text = "\n".join(text_blocks)
                 logger.info("[%s] Completed in %d turns, %.1fs", self.name, turn + 1, time.time() - t_start)
@@ -643,7 +794,6 @@ class AgenticDetector(BaseAgent):
                 logger.info("[%s] Parsed %d findings", self.name, len(findings))
                 return findings
 
-            # Execute all tool calls
             tool_results = []
             for tool_use in tool_uses:
                 tool_name = tool_use.name
@@ -652,8 +802,6 @@ class AgenticDetector(BaseAgent):
                              json.dumps(tool_input, default=str)[:200])
 
                 result = self._toolkit.execute_tool(tool_name, tool_input)
-
-                # Truncate large results to keep context manageable
                 result_json = json.dumps(result, default=str)
                 if len(result_json) > 8000:
                     result_json = result_json[:8000] + "...(truncated)"
@@ -666,8 +814,184 @@ class AgenticDetector(BaseAgent):
 
             messages.append({"role": "user", "content": tool_results})
 
-        # If we exhausted turns without a final text response
         logger.warning("[%s] Exhausted %d turns — using fallback", self.name, MAX_TOOL_TURNS)
+        return self._fallback_analyze(system_type, data_profile)
+
+    # ── OpenAI function-calling loop ──────────────────────────────
+
+    async def _run_openai_loop(self, system_type: str, system_name: str,
+                               data_profile: Dict, metadata_context: str) -> List[AgentFinding]:
+        api_key = _get_openai_api_key()
+        if not HAS_OPENAI or not api_key:
+            logger.warning("[%s] OpenAI not available — falling back to Anthropic", self.name)
+            return await self._run_anthropic_loop(system_type, system_name, data_profile, metadata_context)
+
+        client = AsyncOpenAI(api_key=api_key)
+
+        data_summary = self._build_data_summary(data_profile)
+        initial_msg = self._initial_user_message(system_type, system_name, data_summary, metadata_context)
+        system_prompt = self._system_prompt(system_type)
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": initial_msg},
+        ]
+        tools = _tools_to_openai_format(DataToolkit.tool_definitions())
+
+        logger.info("[%s] Starting OpenAI agentic loop (model=%s, max %d turns)...",
+                    self.name, self.openai_model, MAX_TOOL_TURNS)
+        t_start = time.time()
+
+        for turn in range(MAX_TOOL_TURNS):
+            elapsed = time.time() - t_start
+            if elapsed > self.agent_timeout:
+                logger.warning("[%s] Agent timeout after %.1fs, %d turns", self.name, elapsed, turn)
+                break
+
+            try:
+                response = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=self.openai_model,
+                        messages=messages,
+                        tools=tools,
+                        max_tokens=4096,
+                    ),
+                    timeout=max(30, self.agent_timeout - elapsed),
+                )
+            except (asyncio.TimeoutError, Exception) as exc:
+                logger.error("[%s] OpenAI turn %d failed: %s", self.name, turn + 1, exc)
+                break
+
+            choice = response.choices[0]
+            assistant_msg = choice.message
+            messages.append(assistant_msg)
+
+            # Check for tool calls
+            if not assistant_msg.tool_calls:
+                # Model finished — extract text
+                full_text = assistant_msg.content or ""
+                logger.info("[%s] OpenAI completed in %d turns, %.1fs", self.name, turn + 1, time.time() - t_start)
+                findings = self._parse_response(full_text)
+                logger.info("[%s] Parsed %d findings", self.name, len(findings))
+                return findings
+
+            # Execute tool calls
+            for tc in assistant_msg.tool_calls:
+                tool_name = tc.function.name
+                try:
+                    tool_input = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    tool_input = {}
+                logger.debug("[%s] OpenAI turn %d: calling %s(%s)", self.name, turn + 1,
+                             tool_name, json.dumps(tool_input, default=str)[:200])
+
+                result = self._toolkit.execute_tool(tool_name, tool_input)
+                result_json = json.dumps(result, default=str)
+                if len(result_json) > 8000:
+                    result_json = result_json[:8000] + "...(truncated)"
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_json,
+                })
+
+        logger.warning("[%s] OpenAI exhausted %d turns — using fallback", self.name, MAX_TOOL_TURNS)
+        return self._fallback_analyze(system_type, data_profile)
+
+    # ── Gemini function-calling loop ──────────────────────────────
+
+    async def _run_gemini_loop(self, system_type: str, system_name: str,
+                               data_profile: Dict, metadata_context: str) -> List[AgentFinding]:
+        api_key = _get_gemini_api_key()
+        if not HAS_GEMINI or not api_key:
+            logger.warning("[%s] Gemini not available — falling back to Anthropic", self.name)
+            return await self._run_anthropic_loop(system_type, system_name, data_profile, metadata_context)
+
+        genai.configure(api_key=api_key)
+
+        data_summary = self._build_data_summary(data_profile)
+        initial_msg = self._initial_user_message(system_type, system_name, data_summary, metadata_context)
+        system_prompt = self._system_prompt(system_type)
+
+        # Build Gemini tool declarations
+        declarations = _tools_to_gemini_declarations(DataToolkit.tool_definitions())
+        gemini_tools = genai.protos.Tool(function_declarations=declarations)
+
+        model = genai.GenerativeModel(
+            model_name=self.gemini_model,
+            system_instruction=system_prompt,
+            tools=[gemini_tools],
+        )
+
+        logger.info("[%s] Starting Gemini agentic loop (model=%s, max %d turns)...",
+                    self.name, self.gemini_model, MAX_TOOL_TURNS)
+        t_start = time.time()
+
+        # Gemini uses a chat session for multi-turn
+        loop = asyncio.get_event_loop()
+        chat = model.start_chat()
+
+        # Send initial message
+        try:
+            response = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: chat.send_message(initial_msg)),
+                timeout=max(30, self.agent_timeout),
+            )
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.error("[%s] Gemini initial message failed: %s", self.name, exc)
+            return self._fallback_analyze(system_type, data_profile)
+
+        for turn in range(MAX_TOOL_TURNS):
+            elapsed = time.time() - t_start
+            if elapsed > self.agent_timeout:
+                logger.warning("[%s] Gemini timeout after %.1fs, %d turns", self.name, elapsed, turn)
+                break
+
+            # Check for function calls in the response
+            fn_calls = []
+            for part in response.parts:
+                if hasattr(part, "function_call") and part.function_call.name:
+                    fn_calls.append(part.function_call)
+
+            if not fn_calls:
+                # Model finished — extract text
+                full_text = response.text or ""
+                logger.info("[%s] Gemini completed in %d turns, %.1fs", self.name, turn + 1, time.time() - t_start)
+                findings = self._parse_response(full_text)
+                logger.info("[%s] Parsed %d findings", self.name, len(findings))
+                return findings
+
+            # Execute function calls and send results back
+            fn_responses = []
+            for fc in fn_calls:
+                tool_name = fc.name
+                tool_input = dict(fc.args) if fc.args else {}
+                logger.debug("[%s] Gemini turn %d: calling %s(%s)", self.name, turn + 1,
+                             tool_name, json.dumps(tool_input, default=str)[:200])
+
+                result = self._toolkit.execute_tool(tool_name, tool_input)
+                result_json = json.dumps(result, default=str)
+                if len(result_json) > 8000:
+                    result_json = result_json[:8000] + "...(truncated)"
+
+                fn_responses.append(
+                    genai.protos.Part(function_response=genai.protos.FunctionResponse(
+                        name=tool_name,
+                        response={"result": result_json},
+                    ))
+                )
+
+            try:
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: chat.send_message(fn_responses)),
+                    timeout=max(30, self.agent_timeout - elapsed),
+                )
+            except (asyncio.TimeoutError, Exception) as exc:
+                logger.error("[%s] Gemini turn %d failed: %s", self.name, turn + 1, exc)
+                break
+
+        logger.warning("[%s] Gemini exhausted %d turns — using fallback", self.name, MAX_TOOL_TURNS)
         return self._fallback_analyze(system_type, data_profile)
 
     # Subclasses must override:

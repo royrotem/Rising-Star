@@ -67,6 +67,9 @@ settings_store = _SettingsStore()
 
 class AISettings(BaseModel):
     anthropic_api_key: Optional[str] = Field(None, description="Anthropic API key for Claude LLM agents")
+    openai_api_key: Optional[str] = Field(None, description="OpenAI API key for GPT agents")
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")
+    agentic_llm_provider: str = Field("auto", description="LLM provider for agentic detectors: auto, anthropic, openai, gemini")
     enable_ai_agents: bool = Field(True, description="Enable AI multi-agent analysis")
     enable_web_grounding: bool = Field(True, description="Allow agents to search the web for engineering context")
     extended_thinking_budget: int = Field(10000, ge=1000, le=50000, description="Token budget for extended thinking agent")
@@ -83,21 +86,25 @@ class SettingsUpdate(BaseModel):
 
 # ─── Endpoints ────────────────────────────────────────────────────────
 
+def _mask_key(key: str) -> str:
+    """Mask an API key for display."""
+    if not key:
+        return ""
+    return key[:8] + "..." + key[-4:] if len(key) > 12 else "***configured***"
+
+
 @router.get("/", response_model=SettingsResponse)
 async def get_settings():
     """Get all application settings. API keys are masked in the response."""
     raw = settings_store.get_all()
     ai_raw = raw.get("ai", {})
 
-    # Mask API key in response
-    api_key = ai_raw.get("anthropic_api_key", "") or ""
-    masked_key = ""
-    if api_key:
-        masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***configured***"
-
     return SettingsResponse(
         ai=AISettings(
-            anthropic_api_key=masked_key,
+            anthropic_api_key=_mask_key(ai_raw.get("anthropic_api_key", "") or ""),
+            openai_api_key=_mask_key(ai_raw.get("openai_api_key", "") or ""),
+            gemini_api_key=_mask_key(ai_raw.get("gemini_api_key", "") or ""),
+            agentic_llm_provider=ai_raw.get("agentic_llm_provider", "auto"),
             enable_ai_agents=ai_raw.get("enable_ai_agents", True),
             enable_web_grounding=ai_raw.get("enable_web_grounding", True),
             extended_thinking_budget=ai_raw.get("extended_thinking_budget", 10000),
@@ -110,13 +117,14 @@ async def update_settings(update: SettingsUpdate):
     """Update application settings."""
     if update.ai is not None:
         ai_data = update.ai.model_dump(exclude_none=False)
+        existing = settings_store.get("ai", {})
 
-        # If the masked key is sent back, don't overwrite the real one
-        existing_key = settings_store.get("ai", {}).get("anthropic_api_key", "")
-        if ai_data.get("anthropic_api_key") and "..." in (ai_data["anthropic_api_key"] or ""):
-            ai_data["anthropic_api_key"] = existing_key
-        if ai_data.get("anthropic_api_key") == "***configured***":
-            ai_data["anthropic_api_key"] = existing_key
+        # Preserve real keys when masked values are sent back
+        for key_field in ("anthropic_api_key", "openai_api_key", "gemini_api_key"):
+            val = ai_data.get(key_field) or ""
+            existing_val = existing.get(key_field, "")
+            if "..." in val or val == "***configured***":
+                ai_data[key_field] = existing_val
 
         settings_store.set("ai", ai_data)
 
@@ -128,20 +136,36 @@ async def update_settings(update: SettingsUpdate):
 async def get_ai_status():
     """Check if AI is properly configured and ready."""
     ai_settings = settings_store.get("ai", {})
-    api_key = ai_settings.get("anthropic_api_key", "")
     enabled = ai_settings.get("enable_ai_agents", True)
 
-    has_key = bool(api_key and len(api_key) > 10)
+    providers = {}
+    for name, key_field, env_vars in [
+        ("anthropic", "anthropic_api_key", ["ANTHROPIC_API_KEY"]),
+        ("openai", "openai_api_key", ["OPENAI_API_KEY"]),
+        ("gemini", "gemini_api_key", ["GOOGLE_API_KEY", "GEMINI_API_KEY"]),
+    ]:
+        key = ai_settings.get(key_field, "") or ""
+        if not key:
+            for ev in env_vars:
+                key = os.environ.get(ev, "")
+                if key:
+                    break
+        providers[name] = bool(key and len(key) > 10)
+
+    has_any_key = any(providers.values())
+    active_provider = ai_settings.get("agentic_llm_provider", "auto")
 
     return {
-        "configured": has_key,
+        "configured": has_any_key,
         "enabled": enabled,
-        "ready": has_key and enabled,
+        "ready": has_any_key and enabled,
+        "providers": providers,
+        "active_provider": active_provider,
         "web_grounding_enabled": ai_settings.get("enable_web_grounding", True),
         "message": (
-            "AI agents are ready" if has_key and enabled
+            "AI agents are ready" if has_any_key and enabled
             else "AI agents disabled" if not enabled
-            else "Set your Anthropic API key in Settings to enable AI agents"
+            else "Set at least one API key (Anthropic, OpenAI, or Gemini) in Settings"
         ),
     }
 
