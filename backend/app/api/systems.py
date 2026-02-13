@@ -1170,6 +1170,7 @@ async def _run_ai_analysis(
             data_profile=data_profile,
             metadata_context=metadata_context,
             enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
+            raw_records=records,
         )
 
         merge_ai_anomalies(anomalies, ai_result)

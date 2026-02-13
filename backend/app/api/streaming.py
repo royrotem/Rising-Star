@@ -252,7 +252,7 @@ async def analyze_system_stream(
                     "progress": 50,
                 })
 
-            # ── Stage 3: AI multi-agent analysis (25 Claude agents) ──
+            # ── Stage 3: AI multi-agent analysis (30 agents: 25 prompt + 5 agentic) ──
             ai_cfg = get_ai_settings()
             ai_result = None
             agent_statuses: List[Dict] = []
@@ -305,6 +305,7 @@ async def analyze_system_stream(
                             enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
                             selected_agents=selected_agents,
                             on_batch_complete=on_batch_complete,
+                            raw_records=records,
                         )
                     )
                     t_ai_start = time.time()

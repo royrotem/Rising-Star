@@ -97,6 +97,12 @@ ALL_AGENT_NAMES = [
     "Hydraulic/Pressure Expert",
     "Human-Context Filter",
     "Logic State Conflict",
+    # Agentic detectors (tool-using, multi-turn)
+    "Autonomous Explorer",
+    "Statistical Investigator",
+    "Correlation Hunter",
+    "Drift & Shift Detector",
+    "Physics Constraint Agent",
 ]
 
 
@@ -2268,7 +2274,7 @@ class AgentOrchestrator:
 
     def __init__(self):
         self.agents: List[BaseAgent] = [
-            # Original 13 agents
+            # Original 13 prompt-based agents
             StatisticalAnalyst(),
             DomainExpert(),
             PatternDetective(),
@@ -2296,6 +2302,7 @@ class AgentOrchestrator:
             HumanContextFilter(),
             LogicStateConflict(),
         ]
+        self._agentic_added = False
 
     async def run_analysis(
         self,
@@ -2307,16 +2314,44 @@ class AgentOrchestrator:
         enable_web_grounding: bool = True,
         selected_agents: Optional[List[str]] = None,
         on_batch_complete: Optional[Any] = None,
+        raw_records: Optional[List[Dict]] = None,
     ) -> Dict[str, Any]:
         """Run agents in parallel and unify results.
 
         Args:
             selected_agents: If provided, only run agents whose names are in this list.
                              If None or empty, all agents are run.
+            raw_records: Raw data records — passed to agentic detectors so they
+                         can explore data via tool calls.  Prompt-based agents
+                         still receive only the data_profile summary.
 
         Has a global timeout of ORCHESTRATOR_TIMEOUT seconds.  Individual
         agents also have their own AGENT_TIMEOUT.
         """
+        # Lazily add agentic detectors (26–30) on first call with raw data
+        if raw_records and not self._agentic_added:
+            from .agentic_detectors import (
+                AgenticDetector, DataToolkit,
+                AutonomousExplorer, StatisticalInvestigator,
+                CorrelationHunter, DriftShiftDetector, PhysicsConstraintAgent,
+            )
+            self.agents.extend([
+                AutonomousExplorer(),
+                StatisticalInvestigator(),
+                CorrelationHunter(),
+                DriftShiftDetector(),
+                PhysicsConstraintAgent(),
+            ])
+            self._agentic_added = True
+
+        # Set up toolkit for agentic detectors if raw data is available
+        if raw_records:
+            from .agentic_detectors import AgenticDetector, DataToolkit
+            import pandas as _pd
+            toolkit = DataToolkit(_pd.DataFrame(raw_records))
+            for agent in self.agents:
+                if isinstance(agent, AgenticDetector):
+                    agent.set_toolkit(toolkit)
 
         # Filter agents if selection provided
         if selected_agents:
