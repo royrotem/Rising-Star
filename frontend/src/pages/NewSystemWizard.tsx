@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowRight,
@@ -195,9 +195,13 @@ function getFileIcon(filename: string) {
 
 export default function NewSystemWizard() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const demoType = searchParams.get('demo') as 'hvac' | 'uav' | null;
+
   const [currentStep, setCurrentStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [demoPrepared, setDemoPrepared] = useState(false);
 
   // Step 1: File uploads (multiple)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -237,11 +241,87 @@ export default function NewSystemWizard() {
     (req) => req.field || req.field_name || req.type === 'field_confirmation'
   );
 
+  // ── Demo mode: auto-prepare data on mount ─────────────────────────
+  const prepareDemoData = useCallback(async () => {
+    if (!demoType) return;
+    setIsProcessing(true);
+    setError(null);
+
+    const demoLabel = demoType === 'uav' ? 'UAV flight telemetry' : 'HVAC sensor data';
+
+    setUploadProgress({
+      active: true,
+      phase: 'upload',
+      percent: 10,
+      message: `Preparing ${demoLabel}...`,
+    });
+
+    try {
+      // Simulate a brief loading phase for visual effect
+      await new Promise((r) => setTimeout(r, 400));
+      setUploadProgress({ active: true, phase: 'upload', percent: 40, message: `Generating ${demoLabel}...` });
+
+      const response = await fetch(`/api/v1/systems/demo/prepare/${demoType}`, { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to prepare demo data');
+
+      setUploadProgress({ active: true, phase: 'analyze', percent: 80, message: 'Building schema...' });
+      const result = await response.json();
+
+      // Create a virtual file entry so the wizard shows it
+      const demoFileName = result.demo_source_file || (demoType === 'uav' ? 'Fusion_Data.csv' : 'hvac_telemetry.csv');
+      const virtualFile = new File([], demoFileName, { type: 'text/csv' });
+      Object.defineProperty(virtualFile, 'size', { value: result.total_records * 120 }); // approximate size
+      setUploadedFiles([{
+        file: virtualFile,
+        id: `demo-${demoType}-${Date.now()}`,
+        status: 'uploaded',
+      }]);
+
+      setAnalysisId(result.analysis_id);
+      setAiRecommendation(result.recommendation);
+      setAiPowered(result.ai_powered || true);
+      if (result.available_system_types) {
+        setAvailableSystemTypes(result.available_system_types);
+      }
+      setSystemData({
+        name: result.recommendation?.suggested_name || '',
+        system_type: result.recommendation?.suggested_type || '',
+        serial_number: demoType === 'uav' ? 'DEMO-UAV-KAGGLE' : 'DEMO-001',
+        model: demoType === 'uav' ? 'Quadcopter-SITL (Kaggle TLM)' : 'HVAC-Demo',
+        description: result.recommendation?.suggested_description || '',
+      });
+      setDiscoveredFields(result.discovered_fields || []);
+      setFieldRelationships(result.field_relationships || []);
+      setBlindSpots(result.blind_spots || []);
+      setConfirmationRequests(result.confirmation_requests || []);
+      setRecordCount(result.total_records || 0);
+
+      setUploadProgress({ active: true, phase: 'complete', percent: 100, message: 'Demo data ready!' });
+      setDemoPrepared(true);
+
+      setTimeout(() => {
+        setUploadProgress({ active: false, phase: '', percent: 0, message: '' });
+      }, 800);
+    } catch (err) {
+      console.error('Failed to prepare demo data:', err);
+      setError('Failed to prepare demo data. Please try again.');
+      setUploadProgress({ active: false, phase: '', percent: 0, message: '' });
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [demoType]);
+
+  useEffect(() => {
+    if (demoType && !demoPrepared) {
+      prepareDemoData();
+    }
+  }, [demoType, demoPrepared, prepareDemoData]);
+
   // Navigation
   const canProceed = () => {
     switch (currentStep) {
       case 1:
-        return uploadedFiles.length > 0;
+        return demoType ? demoPrepared : uploadedFiles.length > 0;
       case 2:
         return systemData.name.trim() !== '' && systemData.system_type !== '';
       case 3:
@@ -255,6 +335,12 @@ export default function NewSystemWizard() {
 
   const handleNext = async () => {
     if (currentStep === 1) {
+      // In demo mode, data is already prepared — just advance
+      if (demoType && demoPrepared) {
+        setCurrentStep(2);
+        return;
+      }
+
       // Analyze uploaded files and get AI recommendations
       setIsProcessing(true);
       setError(null);
@@ -459,20 +545,54 @@ export default function NewSystemWizard() {
       case 1:
         return (
           <div className="space-y-6">
+            {/* Demo mode banner */}
+            {demoType && (
+              <div className={clsx(
+                'rounded-lg p-4 border',
+                demoType === 'uav'
+                  ? 'bg-sky-500/10 border-sky-500/30'
+                  : 'bg-purple-500/10 border-purple-500/30',
+              )}>
+                <div className="flex items-start gap-3">
+                  <Sparkles className={clsx('w-5 h-5 mt-0.5', demoType === 'uav' ? 'text-sky-400' : 'text-purple-400')} />
+                  <div>
+                    <h3 className={clsx('font-medium', demoType === 'uav' ? 'text-sky-400' : 'text-purple-400')}>
+                      {demoType === 'uav' ? 'UAV Flight Telemetry Demo' : 'HVAC Sensor Data Demo'}
+                    </h3>
+                    <p className="text-sm text-stone-300 mt-1">
+                      {demoType === 'uav'
+                        ? 'Loading real UAV flight data from the TLM:UAV Kaggle dataset (GPS, IMU, RATE, VIBE) with 4 fault types injected by ArduPilot SITL simulation.'
+                        : 'Generating realistic HVAC building sensor data with 1,000 records across 20 telemetry fields and 10 anomaly types.'}
+                    </p>
+                    {demoPrepared && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        <span className="text-sm text-green-400 font-medium">
+                          Demo data prepared — click Continue to proceed
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-stone-700/50 rounded-lg p-4 border border-stone-600">
               <div className="flex items-start gap-3">
                 <Database className="w-5 h-5 text-primary-400 mt-0.5" />
                 <div>
                   <h3 className="font-medium text-white">Data Pool</h3>
                   <p className="text-sm text-stone-400 mt-1">
-                    Upload data files or ZIP archives. Our system automatically discovers relationships
-                    between files, understands data structure, and infers system type.
-                    Supports CSV, JSON, Parquet, Excel, and ZIP archives with multiple files inside.
+                    {demoType
+                      ? 'Demo data is being loaded automatically. You can review the generated files below.'
+                      : 'Upload data files or ZIP archives. Our system automatically discovers relationships between files, understands data structure, and infers system type. Supports CSV, JSON, Parquet, Excel, and ZIP archives with multiple files inside.'}
                   </p>
                 </div>
               </div>
             </div>
 
+            {/* File drop zone — hidden in demo mode */}
+            {!demoType && (
             <div
               className={clsx(
                 'border-2 border-dashed rounded-xl p-8 text-center transition-all',
@@ -500,6 +620,7 @@ export default function NewSystemWizard() {
                 </p>
               </label>
             </div>
+            )}
 
             {/* Uploaded files list */}
             {uploadedFiles.length > 0 && (
@@ -1131,8 +1252,14 @@ export default function NewSystemWizard() {
           <ArrowLeft className="w-4 h-4" />
           Back to Systems
         </button>
-        <h1 className="text-3xl font-bold text-white">Add New System</h1>
-        <p className="text-stone-400 mt-1">Upload your data and let smart detection configure your system</p>
+        <h1 className="text-3xl font-bold text-white">
+          {demoType ? `${demoType === 'uav' ? 'UAV' : 'HVAC'} Demo Setup` : 'Add New System'}
+        </h1>
+        <p className="text-stone-400 mt-1">
+          {demoType
+            ? 'Walk through the full system setup experience with pre-generated demo data'
+            : 'Upload your data and let smart detection configure your system'}
+        </p>
       </div>
 
       {/* Progress Steps */}
@@ -1241,7 +1368,7 @@ export default function NewSystemWizard() {
                 </>
               ) : currentStep === 1 ? (
                 <>
-                  Analyze Files
+                  {demoType ? 'Continue' : 'Analyze Files'}
                   <Brain className="w-5 h-5" />
                 </>
               ) : (

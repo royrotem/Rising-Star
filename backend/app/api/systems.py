@@ -511,6 +511,23 @@ async def create_system(system: SystemCreate):
         if moved:
             created_system = data_store.get_system(system_id)
 
+        # If this analysis_id has pending ground truth from a demo prepare
+        # flow, associate it with the newly created system.
+        if system.analysis_id in _demo_ground_truth_pending:
+            gt = _demo_ground_truth_pending.pop(system.analysis_id)
+            _demo_ground_truth_store[system_id] = gt
+            # Mark system as demo with ground truth
+            data_store.update_system(system_id, {
+                "is_demo": True,
+                "metadata": {
+                    **(created_system.get("metadata") or {}),
+                    "is_demo": True,
+                    "has_ground_truth": True,
+                },
+            })
+            created_system = data_store.get_system(system_id)
+            logger.info("CREATE-SYSTEM: Associated ground truth with system %s (from demo prepare)", system_id)
+
     return SystemResponse(**created_system)
 
 
@@ -1406,6 +1423,102 @@ async def get_next_gen_specs(system_id: str):
 # ═══════════════════════════════════════════════════════════════════════
 # Demo Mode
 # ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/demo/prepare/{demo_type}")
+async def prepare_demo_data(demo_type: str):
+    """
+    Prepare demo data in the same format as analyze-files.
+
+    This lets the frontend wizard walk users through the normal steps
+    (upload → settings → schema → confirm → complete) using demo data
+    instead of user-uploaded files.
+
+    Returns the same payload as POST /analyze-files so the wizard can
+    treat it identically.
+    """
+    if demo_type == "hvac":
+        from ..services.demo_generator import generate_full_demo_package
+        demo = generate_full_demo_package()
+        source_filename = "hvac_telemetry.csv"
+    elif demo_type == "uav":
+        from ..services.tlm_uav_generator import generate_full_tlm_uav_package
+        demo = generate_full_tlm_uav_package()
+        source_filename = "Fusion_Data.csv"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown demo type: {demo_type}")
+
+    analysis_id = str(uuid.uuid4())
+    logger.info("DEMO-PREPARE: type=%s, analysis_id=%s", demo_type, analysis_id)
+
+    records = demo["records"]
+    discovered_fields = demo["discovered_fields"]
+    recommendation = demo["recommendation"]
+    relationships = demo.get("relationships", [])
+    blind_spots = demo.get("blind_spots", [])
+
+    # Store in temp analysis storage (same as analyze-files does)
+    file_summaries = [{
+        "filename": source_filename,
+        "record_count": len(records),
+        "fields": [f.get("name", "") for f in discovered_fields],
+        "field_types": {f.get("name", ""): f.get("type", f.get("inferred_type", "")) for f in discovered_fields},
+        "role": "data",
+    }]
+
+    data_store.store_temp_analysis(
+        analysis_id=analysis_id,
+        records=records,
+        file_summaries=file_summaries,
+        discovered_fields=discovered_fields,
+        file_records_map={source_filename: records},
+    )
+
+    # For UAV demos — stash ground truth keyed by analysis_id so we can
+    # associate it with the system once the wizard creates it.
+    gt_summary = None
+    if demo_type == "uav" and "ground_truth" in demo:
+        _demo_ground_truth_pending[analysis_id] = demo["ground_truth"]
+        gt_summary = {
+            "total_records": demo["ground_truth"]["total_records"],
+            "total_anomalous": demo["ground_truth"]["total_anomalous"],
+            "total_normal": demo["ground_truth"]["total_normal"],
+            "distribution": demo["ground_truth"]["distribution"],
+        }
+
+    logger.info("DEMO-PREPARE: analysis_id=%s stored %d records, %d fields",
+                analysis_id, len(records), len(discovered_fields))
+
+    return {
+        "status": "success",
+        "analysis_id": analysis_id,
+        "files_analyzed": 1,
+        "total_records": len(records),
+        "ai_powered": True,
+        "discovered_fields": discovered_fields,
+        "recommendation": recommendation,
+        "field_relationships": relationships,
+        "blind_spots": blind_spots,
+        "confirmation_requests": [],
+        "file_classification": {
+            "data_files": [source_filename],
+            "description_files": [],
+            "error_files": [],
+        },
+        "file_errors": [],
+        "context_extracted": False,
+        "fields_enriched": len(discovered_fields),
+        "available_system_types": SYSTEM_TYPES,
+        "demo_type": demo_type,
+        "demo_source_file": source_filename,
+        "ground_truth_summary": gt_summary,
+    }
+
+
+# Pending ground truth for demos going through the wizard flow.
+# Keyed by analysis_id; moved to _demo_ground_truth_store once
+# the system is created.
+_demo_ground_truth_pending: dict = {}
+
 
 @router.post("/demo/create")
 async def create_demo_system():
