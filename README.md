@@ -15,12 +15,15 @@
   - [Docker (Recommended)](#docker-recommended)
   - [Local Development](#local-development)
   - [Windows Quick Start](#windows-quick-start)
+- [Cloud Deployment](#cloud-deployment-free-domain)
 - [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Core Features](#core-features)
+- [ML Models & Detection Pipeline](#ml-models--detection-pipeline)
 - [API Reference](#api-reference)
 - [Configuration](#configuration)
 - [Development](#development)
+- [Architecture Improvement Proposals](#architecture-improvement-proposals)
 - [License](#license)
 
 ---
@@ -29,13 +32,14 @@
 
 Complex hardware companies (aerospace, robotics, MedTech, automotive) generate petabytes of data from their physical products but lack the tools to extract intelligence from it. Achieving Tesla-level data maturity typically requires years and 50+ data scientists.
 
-**UAIE** is a domain-agnostic SaaS platform that deploys **13 specialized AI agents** to ingest raw, unstructured system data and transform it into actionable engineering intelligence. It bridges hardware physics and software logic, enabling any engineering team to achieve AI readiness from day one.
+**UAIE** is a domain-agnostic SaaS platform that deploys **25 specialized AI agents** to ingest raw, unstructured system data and transform it into actionable engineering intelligence. It bridges hardware physics and software logic, enabling any engineering team to achieve AI readiness from day one.
 
 ### Key Capabilities
 
 - **Zero-Knowledge Ingestion** - Upload raw data (16+ formats), the system learns the structure autonomously
 - **Physics-Aware Anomaly Detection** - 6-layer detection engine that understands physical context
-- **13 AI Agent Swarm** - Specialized agents (statistical, domain, temporal, safety, etc.) powered by Claude
+- **25 AI Agent Swarm** - Specialized agents (statistical, domain, temporal, safety, cyber, vibration, hydraulics, etc.) powered by Claude
+- **ML Detection Pipeline** - XGBoost, CNN Autoencoder, Logistic Regression, Isolation Forest, One-Class SVM, GMM, KDE + 8 hardcoded detectors
 - **Root Cause Analysis** - Natural language explanations of why anomalies occur
 - **Engineering Margins** - Real-time safety margin tracking with projected breach dates
 - **Conversational AI** - Chat with your data using natural language
@@ -203,7 +207,8 @@ Render will:
 - Deploy to `https://<your-app-name>.onrender.com`
 - **Auto-deploy** on every push to the main branch
 - Run health checks at `/health`
-- Provide 1 GB persistent disk for data storage
+
+> **Note:** The free tier does not include persistent disk. Data stored in the container filesystem will be lost on redeploy. Upgrade to a paid plan and add a disk (mount path: `/app/data`) for data persistence.
 
 > The `render.yaml` blueprint in this repo defines the full infrastructure as code.
 
@@ -220,15 +225,15 @@ Render will:
    - `ANTHROPIC_API_KEY` — your API key (optional)
    - `CORS_ORIGINS` — `https://<your-app>.onrender.com`
    - `DEBUG` — `false`
-5. Add a **Disk**: mount path `/app/data`, size 1 GB
+5. (Optional - paid plan) Add a **Disk**: mount path `/app/data`, size 1 GB
 6. Click **Create Web Service**
 
 ### CI/CD Pipeline
 
-The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `main`:
+The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push and PR to `main`/`master`:
 
-1. **Backend checks** — Python syntax validation across all modules
-2. **Frontend checks** — `npm ci` + `npm run build` (TypeScript + Vite)
+1. **Backend checks** — Python syntax validation across all modules (Python 3.11)
+2. **Frontend checks** — `npm ci` + `npm run build` (Node 20, TypeScript + Vite)
 3. **Docker build** — Builds the production image and runs a `/health` smoke test
 
 Render auto-deploys from the main branch after CI passes.
@@ -266,19 +271,30 @@ Render auto-deploys from the main branch after CI passes.
                     │  │    Service Layer            │  │
                     │  │  IngestionService (16 fmt)  │  │
                     │  │  AnalysisEngine (6 layers)  │  │
-                    │  │  AnomalyDetection           │  │
-                    │  │  RootCauseService            │  │
-                    │  │  ChatService (Claude)        │  │
-                    │  │  ReportGenerator (PDF)       │  │
-                    │  │  Scheduler (Watchdog)        │  │
+                    │  │  ML Pipeline (7 detectors)  │  │
+                    │  │  Hardcoded Models (8 algs)  │  │
+                    │  │  RootCauseService           │  │
+                    │  │  ChatService (Claude)       │  │
+                    │  │  ReportGenerator (PDF)      │  │
+                    │  │  Scheduler (Watchdog)       │  │
                     │  └─────────────┬──────────────┘  │
                     │                │                  │
                     │  ┌─────────────▼──────────────┐  │
-                    │  │  AI Agent Swarm (13 agents) │  │
+                    │  │  AI Agent Swarm (25 agents) │  │
+                    │  │                             │  │
+                    │  │  Core (13):                 │  │
                     │  │  Statistical, Domain,       │  │
                     │  │  Pattern, Safety, Temporal,  │  │
                     │  │  Predictive, Reliability,    │  │
                     │  │  Compliance, Efficiency...   │  │
+                    │  │                             │  │
+                    │  │  Specialized (12):          │  │
+                    │  │  StagnationSentinel,        │  │
+                    │  │  NoiseFloorAuditor,         │  │
+                    │  │  MicroDriftTracker,         │  │
+                    │  │  CyberInjectionHunter,      │  │
+                    │  │  VibrationGhost,            │  │
+                    │  │  HydraulicPressureExpert... │  │
                     │  └────────────────────────────┘  │
                     └──────────────┬──────────────────┘
                                    │
@@ -293,7 +309,7 @@ Render auto-deploys from the main branch after CI passes.
 1. **Upload** - User uploads raw data files (CSV, JSON, Parquet, Excel, CAN, binary, etc.)
 2. **Discover** - AI agents autonomously learn data structure, infer types and physical units
 3. **Confirm** - Engineer verifies the system's understanding (human-in-the-loop)
-4. **Analyze** - 6-layer rule engine + 13 AI agents analyze in parallel via SSE streaming
+4. **Analyze** - 6-layer rule engine + ML pipeline + 25 AI agents analyze in parallel via SSE streaming
 5. **Act** - Anomalies, root causes, margins, blind spots, and recommendations are presented
 6. **Chat** - Engineer can ask questions in natural language about findings
 7. **Monitor** - Watchdog mode runs periodic analysis automatically
@@ -306,93 +322,124 @@ Render auto-deploys from the main branch after CI passes.
 Rising-Star/
 ├── backend/
 │   ├── app/
-│   │   ├── agents/                 # AI agent framework
-│   │   │   ├── base.py             # BaseAgent, agent types
-│   │   │   └── orchestrator.py     # Multi-agent coordination
-│   │   ├── api/                    # REST API endpoints
-│   │   │   ├── systems.py          # System CRUD + ingestion + analysis
-│   │   │   ├── streaming.py        # SSE real-time analysis progress
-│   │   │   ├── chat.py             # Conversational AI
-│   │   │   ├── reports.py          # PDF report generation
-│   │   │   ├── baselines.py        # Historical baseline tracking
-│   │   │   ├── schedules.py        # Watchdog mode management
-│   │   │   ├── feedback.py         # Anomaly feedback loop
-│   │   │   ├── app_settings.py     # API key & AI configuration
-│   │   │   └── schemas.py          # Pydantic request/response models
+│   │   ├── agents/                     # AI agent framework
+│   │   │   ├── base.py                 # BaseAgent, AgentTask, AgentMessage
+│   │   │   └── orchestrator.py         # Multi-agent coordination & scheduling
+│   │   ├── api/                        # REST API endpoints (8 routers)
+│   │   │   ├── systems.py              # System CRUD + ingestion + analysis
+│   │   │   ├── streaming.py            # SSE real-time analysis progress
+│   │   │   ├── chat.py                 # Conversational AI
+│   │   │   ├── reports.py              # PDF report generation
+│   │   │   ├── baselines.py            # Historical baseline tracking
+│   │   │   ├── schedules.py            # Watchdog mode management
+│   │   │   ├── feedback.py             # Anomaly feedback loop
+│   │   │   ├── app_settings.py         # API key & AI configuration
+│   │   │   └── schemas.py              # Pydantic request/response models
 │   │   ├── core/
-│   │   │   └── config.py           # Application settings (env vars)
-│   │   ├── models/                 # SQLAlchemy ORM models
-│   │   │   ├── system.py           # System, DataSource
-│   │   │   ├── anomaly.py          # Anomaly, EngineeringMargin
-│   │   │   ├── insight.py          # Insight, DataGap
-│   │   │   ├── analysis.py         # RootCause, Correlation
-│   │   │   ├── data.py             # Data models
-│   │   │   └── user.py             # Organization, User, Conversation
-│   │   ├── services/               # Business logic
-│   │   │   ├── ingestion.py        # 16+ format parsing, schema discovery
-│   │   │   ├── analysis_engine.py  # 6-layer anomaly detection engine
-│   │   │   ├── anomaly_detection.py# Physics-aware detection + margins
-│   │   │   ├── ai_agents.py        # 13 specialized AI agents
-│   │   │   ├── root_cause.py       # Correlation & root cause analysis
-│   │   │   ├── chat_service.py     # Claude-powered conversations
-│   │   │   ├── data_store.py       # File-based persistence layer
-│   │   │   ├── report_generator.py # PDF report synthesis
-│   │   │   ├── scheduler.py        # Watchdog background scheduler
-│   │   │   ├── baseline_store.py   # Baseline tracking & comparison
-│   │   │   ├── feedback_store.py   # Anomaly feedback persistence
-│   │   │   └── recommendation.py   # System type detection & naming
-│   │   ├── utils.py                # Utility functions
-│   │   └── main.py                 # FastAPI app entry point
+│   │   │   └── config.py               # Application settings (env vars)
+│   │   ├── models/                     # SQLAlchemy ORM models
+│   │   │   ├── base.py                 # Base class (id, created_at, updated_at)
+│   │   │   ├── system.py               # System, DataSource, SystemStatus
+│   │   │   ├── anomaly.py              # Anomaly, EngineeringMargin
+│   │   │   ├── insight.py              # Insight, DataGap
+│   │   │   ├── analysis.py             # RootCause, Correlation
+│   │   │   ├── data.py                 # Raw data storage models
+│   │   │   └── user.py                 # Organization, User, Conversation
+│   │   ├── services/                   # Business logic (24 modules)
+│   │   │   ├── ingestion.py            # 16+ format parsing, schema discovery
+│   │   │   ├── analysis_engine.py      # 6-layer anomaly detection engine
+│   │   │   ├── anomaly_detection.py    # Physics-aware detection + margins
+│   │   │   ├── ai_agents.py            # 25 specialized AI agents + orchestrator
+│   │   │   ├── agentic_analyzers.py    # Specialized agentic analysis modules
+│   │   │   ├── agentic_detectors.py    # Agentic anomaly detectors
+│   │   │   ├── root_cause.py           # Correlation & root cause analysis
+│   │   │   ├── chat_service.py         # Claude-powered conversations
+│   │   │   ├── data_store.py           # File-based persistence layer
+│   │   │   ├── report_generator.py     # PDF report synthesis
+│   │   │   ├── scheduler.py            # Watchdog background scheduler
+│   │   │   ├── baseline_store.py       # Baseline tracking & comparison
+│   │   │   ├── feedback_store.py       # Anomaly feedback persistence
+│   │   │   ├── recommendation.py       # System type detection & naming
+│   │   │   ├── ml_models.py            # ML model loading & inference pipeline
+│   │   │   ├── hardcoded_models.py     # Rule-based statistical detectors
+│   │   │   ├── archive_handler.py      # ZIP/archive extraction (bomb-protected)
+│   │   │   ├── streaming_ingestion.py  # Streaming data ingestion
+│   │   │   ├── complex_type_detector.py# Data type inference engine
+│   │   │   ├── statistical_profiler.py # Statistical analysis & profiling
+│   │   │   ├── llm_discovery.py        # LLM-based schema discovery
+│   │   │   ├── demo_generator.py       # Demo data generation
+│   │   │   └── tlm_uav_generator.py    # UAV telemetry demo data
+│   │   ├── utils.py                    # Utility functions
+│   │   └── main.py                     # FastAPI app entry point
+│   ├── models/                         # Pre-trained ML model files
+│   │   ├── xgboost_anomaly.json        # XGBoost model (native JSON)
+│   │   ├── xgboost_scaler.joblib       # StandardScaler for XGBoost
+│   │   ├── xgboost_metadata.json       # Feature metadata
+│   │   ├── cnn_autoencoder.pt          # PyTorch CNN autoencoder
+│   │   ├── cnn_scaler.joblib           # StandardScaler for CNN
+│   │   ├── cnn_metadata.json           # Window size, features, threshold
+│   │   ├── logreg_model.joblib         # Logistic regression model
+│   │   ├── logreg_scaler.joblib        # StandardScaler for LogReg
+│   │   ├── logreg_metadata.json        # Feature metadata
+│   │   └── README.md                   # ML models documentation
+│   ├── migrations/                     # Alembic database migrations
 │   ├── Dockerfile
 │   └── requirements.txt
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── Dashboard.tsx       # Fleet overview, impact radar
-│   │   │   ├── Systems.tsx         # System list/grid
-│   │   │   ├── NewSystemWizard.tsx # 5-step creation wizard
-│   │   │   ├── SystemDetail.tsx    # Analysis results, margins, insights
-│   │   │   ├── DataIngestion.tsx   # Upload additional data
-│   │   │   ├── Conversation.tsx    # AI chat interface
-│   │   │   ├── AnomalyExplorer.tsx # Interactive anomaly browser
-│   │   │   └── Settings.tsx        # API keys, watchdog config
+│   │   │   ├── Dashboard.tsx           # Fleet overview, impact radar
+│   │   │   ├── Systems.tsx             # System list/grid
+│   │   │   ├── NewSystemWizard.tsx     # 5-step creation wizard
+│   │   │   ├── SystemDetail.tsx        # Analysis results, margins, insights
+│   │   │   ├── DataIngestion.tsx       # Upload additional data
+│   │   │   ├── Conversation.tsx        # AI chat interface
+│   │   │   ├── AnomalyExplorer.tsx     # Interactive anomaly browser
+│   │   │   └── Settings.tsx            # API keys, watchdog config
 │   │   ├── components/
-│   │   │   ├── Layout.tsx          # Sidebar navigation
+│   │   │   ├── Layout.tsx              # Sidebar navigation
 │   │   │   ├── AnalysisStreamPanel.tsx # Real-time progress
-│   │   │   ├── AnomalyFeedback.tsx # Feedback buttons
-│   │   │   ├── BaselinePanel.tsx   # Baseline visualization
-│   │   │   ├── WatchdogPanel.tsx   # Schedule status
-│   │   │   └── OnboardingGuide.tsx # Getting started checklist
+│   │   │   ├── AnomalyFeedback.tsx     # Feedback buttons
+│   │   │   ├── BaselinePanel.tsx       # Baseline visualization
+│   │   │   ├── WatchdogPanel.tsx       # Schedule status
+│   │   │   └── OnboardingGuide.tsx     # Getting started checklist
 │   │   ├── hooks/
-│   │   │   └── useAnalysisStream.ts # SSE streaming hook
-│   │   ├── services/               # API clients (axios)
-│   │   ├── types/                  # TypeScript definitions
-│   │   ├── utils/                  # Color & formatting utilities
-│   │   └── styles/                 # Tailwind base styles
+│   │   │   └── useAnalysisStream.ts    # SSE streaming hook
+│   │   ├── services/                   # API clients (axios)
+│   │   │   ├── api.ts                  # Main API client
+│   │   │   ├── baselineApi.ts          # Baseline API calls
+│   │   │   ├── chatApi.ts              # Chat API calls
+│   │   │   ├── feedbackApi.ts          # Feedback API calls
+│   │   │   └── reportApi.ts            # Report API calls
+│   │   ├── types/
+│   │   │   └── index.ts                # TypeScript type definitions
+│   │   ├── utils/
+│   │   │   └── colors.ts               # Color & formatting utilities
+│   │   └── styles/                     # Tailwind base styles
 │   ├── Dockerfile
 │   ├── nginx.conf
 │   └── package.json
 │
-├── scripts/                        # Helper scripts
-│   ├── install.sh                  # Linux/Mac: install dependencies
-│   ├── run.sh                      # Linux/Mac: run locally
-│   ├── run-docker.sh               # Linux/Mac: run with Docker
-│   ├── stop-docker.sh              # Linux/Mac: stop Docker
-│   ├── update.sh                   # Linux/Mac: pull & update deps
-│   ├── START.bat                   # Windows: interactive menu
-│   ├── install.bat                 # Windows: install dependencies
-│   ├── run.bat                     # Windows: run locally
-│   ├── run-docker.bat              # Windows: run with Docker
-│   ├── stop-docker.bat             # Windows: stop Docker
-│   └── update.bat                  # Windows: pull & update deps
+├── scripts/                            # Helper scripts (all platforms)
+│   ├── install.sh                      # Linux/Mac: install dependencies
+│   ├── run.sh                          # Linux/Mac: run locally
+│   ├── run-docker.sh                   # Linux/Mac: run with Docker
+│   ├── stop-docker.sh                  # Linux/Mac: stop Docker
+│   ├── update.sh                       # Linux/Mac: pull & update deps
+│   ├── START.bat                       # Windows: interactive menu
+│   ├── install.bat                     # Windows: install dependencies
+│   ├── run.bat                         # Windows: run locally
+│   ├── run-docker.bat                  # Windows: run with Docker
+│   ├── stop-docker.bat                 # Windows: stop Docker
+│   └── update.bat                      # Windows: pull & update deps
 │
-├── .github/workflows/ci.yml        # CI pipeline (GitHub Actions)
-├── Dockerfile                      # Production image (frontend + backend)
-├── .dockerignore                   # Docker build exclusions
-├── docker-compose.yml              # Full stack orchestration (development)
-├── render.yaml                     # Render.com one-click deploy blueprint
-├── .env.example                    # Environment variables template
+├── .github/workflows/ci.yml            # CI pipeline (GitHub Actions)
+├── Dockerfile                          # Production image (frontend + backend)
+├── .dockerignore                       # Docker build exclusions
+├── docker-compose.yml                  # Full stack orchestration (development)
+├── render.yaml                         # Render.com one-click deploy blueprint
+├── .env.example                        # Environment variables template
 ├── .gitignore
 └── README.md
 ```
@@ -413,12 +460,14 @@ Upload raw data and the system autonomously discovers the structure.
 | Structured | JSON, JSONL/NDJSON, XML, YAML |
 | Binary | CAN bus (.can), generic binary (.bin) |
 | Logs | TXT, LOG, DAT |
+| Archives | ZIP (with bomb protection) |
 
 **Discovery capabilities:**
 - Field type inference (numeric, categorical, timestamp, binary)
 - Physical unit detection (temperature, voltage, pressure, speed, RPM, etc.)
 - Relationship discovery (correlations, causation, derived fields)
 - Metadata extraction and statistical profiling
+- LLM-assisted schema discovery (when API key is configured)
 
 ### 2. Physics-Aware Anomaly Detection (6 Layers)
 
@@ -431,9 +480,11 @@ Upload raw data and the system autonomously discovers the structure.
 | 5 | Pattern anomaly detection (deviation from learned patterns) |
 | 6 | Rate-of-change analysis (derivative-based detection) |
 
-### 3. AI Agent Swarm (13 Specialized Agents)
+### 3. AI Agent Swarm (25 Specialized Agents)
 
 Each agent provides a unique perspective on the data:
+
+#### Core Agents (13)
 
 | # | Agent | Focus |
 |---|-------|-------|
@@ -450,6 +501,23 @@ Each agent provides a unique perspective on the data:
 | 11 | Compliance Checker | Regulatory limits, standards |
 | 12 | Reliability Engineer | MTBF, wear-out, degradation |
 | 13 | Environmental Correlator | Cross-parameter effects |
+
+#### Specialized Agents (12)
+
+| # | Agent | Focus |
+|---|-------|-------|
+| 14 | Stagnation Sentinel | Stuck sensors, flatline detection |
+| 15 | Noise Floor Auditor | Signal-to-noise analysis, noise anomalies |
+| 16 | Micro-Drift Tracker | Slow drift below threshold detection |
+| 17 | Cross-Sensor Sync | Multi-sensor timing & synchronization |
+| 18 | Vibration Ghost | Phantom vibration, resonance anomalies |
+| 19 | Harmonic Distortion | Harmonic analysis, frequency anomalies |
+| 20 | Quantization Critic | ADC resolution, discretization artifacts |
+| 21 | Cyber Injection Hunter | Data injection, tampering detection |
+| 22 | Metadata Integrity | Metadata consistency, versioning issues |
+| 23 | Hydraulic Pressure Expert | Hydraulic system analysis |
+| 24 | Human Context Filter | Operator-induced vs system anomalies |
+| 25 | Logic State Conflict | State machine conflicts, impossible states |
 
 > Agents are powered by Claude (Anthropic). Without an API key, the system falls back to rule-based analysis.
 
@@ -483,6 +551,40 @@ Export analysis results as PDF reports including:
 - Anomaly details with severity
 - Engineering margins
 - Blind spots and recommendations
+
+---
+
+## ML Models & Detection Pipeline
+
+Beyond the AI agent swarm, UAIE includes a comprehensive ML-based detection pipeline that works independently of any API key.
+
+### Trained ML Detectors
+
+| Detector | Type | Description |
+|----------|------|-------------|
+| XGBoost | Supervised | Gradient-boosted anomaly classification |
+| CNN Autoencoder | Deep Learning | Reconstruction-error anomaly detection (PyTorch) |
+| Logistic Regression | Supervised | Probabilistic anomaly classification |
+| Isolation Forest | Unsupervised | Isolation-based outlier detection |
+| One-Class SVM | Unsupervised | Support vector boundary detection |
+| GMM | Unsupervised | Gaussian mixture density estimation |
+| KDE | Unsupervised | Kernel density estimation |
+
+### Hardcoded Statistical Detectors
+
+| Detector | Method |
+|----------|--------|
+| Z-Score | Standard deviation-based outlier detection |
+| IQR Outlier | Interquartile range-based detection |
+| Moving Average Deviation | Rolling window deviation analysis |
+| Isolation Score | Tree-based anomaly scoring |
+| DBSCAN Outlier | Density-based spatial clustering |
+| LOF | Local outlier factor detection |
+| Elliptic Envelope | Covariance-based outlier detection |
+
+Each trained model consists of three files: the model file, a `StandardScaler` (.joblib), and a metadata file (.json) containing feature names and thresholds. Models degrade gracefully - if a model file is missing, that detector is skipped and the pipeline continues with the remaining detectors.
+
+See [`backend/models/README.md`](backend/models/README.md) for detailed model configuration and adding new models.
 
 ---
 
@@ -603,6 +705,8 @@ Full interactive documentation available at http://localhost:8000/docs when the 
 
 Copy `.env.example` to `.env` and configure:
 
+#### Application
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APP_NAME` | UAIE | Application name |
@@ -611,25 +715,73 @@ Copy `.env.example` to `.env` and configure:
 | `HOST` | 0.0.0.0 | Server host |
 | `PORT` | 8000 | Server port |
 | `CORS_ORIGINS` | localhost:3000,3001,5173 | Allowed CORS origins (comma-separated) |
-| `DATABASE_URL` | postgresql+asyncpg://... | PostgreSQL connection (optional) |
+
+#### Database & Cache (Optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | postgresql+asyncpg://... | PostgreSQL connection |
 | `DATABASE_POOL_SIZE` | 20 | DB connection pool size |
-| `REDIS_URL` | redis://localhost:6379/0 | Redis connection (optional) |
+| `REDIS_URL` | redis://localhost:6379/0 | Redis connection |
+
+#### Security
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `SECRET_KEY` | (change in production) | JWT signing key |
+| `ALGORITHM` | HS256 | JWT signing algorithm |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | 30 | Token expiry time |
+
+#### AI Services
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | (none) | Anthropic API key for AI agents |
-| `MAX_FILE_SIZE_MB` | 500 | Max upload file size |
-| `ANOMALY_THRESHOLD` | 0.95 | Anomaly detection sensitivity |
-| `DETECTION_WINDOW_HOURS` | 24 | Detection window |
+| `OPENAI_API_KEY` | (none) | OpenAI API key (alternative) |
+
+#### Ingestion
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_FILE_SIZE_MB` | 5000 | Max single file upload size (5 GB) |
+| `MAX_ARCHIVE_SIZE_MB` | 5000 | Max compressed archive size (5 GB) |
+| `MAX_EXTRACTED_SIZE_GB` | 50 | Max total extracted archive size |
+| `MAX_FILES_PER_ARCHIVE` | 10000 | Zip bomb protection limit |
+| `CHUNK_SIZE_RECORDS` | 100000 | Records per processing chunk |
+| `CHUNK_SIZE_BYTES` | 104857600 | Bytes per processing chunk (100 MB) |
+| `STREAM_BUFFER_SIZE` | 8388608 | Streaming buffer size (8 MB) |
+
+#### Storage Thresholds
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | /app/data | File-based data storage path |
+| `USE_DB_THRESHOLD_RECORDS` | 50000 | Switch to PostgreSQL above this row count |
+| `USE_DB_THRESHOLD_MB` | 100 | Switch to PostgreSQL above this file size |
+
+#### Anomaly Detection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANOMALY_THRESHOLD` | 0.95 | Detection sensitivity (0-1) |
+| `DETECTION_WINDOW_HOURS` | 24 | Temporal detection window |
+
+#### ML Models
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODELS_DIR` | backend/models/ | Path to pre-trained model files |
 
 ### API Key Setup
 
-For AI-powered features (13 agents, chat, recommendations):
+For AI-powered features (25 agents, chat, LLM discovery):
 
 1. Get an API key from [console.anthropic.com](https://console.anthropic.com/)
 2. Either:
    - Set `ANTHROPIC_API_KEY` in `.env`
    - Or configure it in the UI: Settings page
 
-Without an API key, the system operates with rule-based analysis only (6-layer detection engine still works).
+Without an API key, the system operates with rule-based analysis only (6-layer detection engine + ML pipeline still work).
 
 ---
 
@@ -671,25 +823,138 @@ npm run lint
 
 **Backend:**
 - FastAPI 0.109 (Python 3.11+)
-- SQLAlchemy 2.0 (ORM, async)
-- Anthropic SDK (Claude AI)
-- pandas, numpy, scipy, scikit-learn (data analysis)
-- fpdf2 (PDF generation)
+- SQLAlchemy 2.0 (ORM, async with asyncpg)
+- Anthropic SDK 0.42 (Claude AI)
+- OpenAI SDK 1.12+ (alternative LLM)
+- pandas 2.1, numpy 1.26, scipy 1.12, scikit-learn 1.4 (data analysis)
+- XGBoost 2.0, PyTorch 2.0+ (ML detection)
+- fpdf2 2.8 (PDF generation)
+- structlog 24.1 (structured logging)
+- python-jose + passlib (security)
 
 **Frontend:**
-- React 18 + TypeScript
+- React 18 + TypeScript 5.3
 - Vite 5 (build tool)
-- Tailwind CSS 3 (styling)
+- Tailwind CSS 3.4 (styling)
 - React Router 6 (routing)
-- Axios (HTTP client)
-- Recharts (charts)
+- TanStack React Query 5 (server state)
+- Axios 1.6 (HTTP client)
+- Recharts 2.10 (charts)
 - Lucide React (icons)
+- clsx (class utilities)
+- date-fns 3 (date formatting)
 
 **Infrastructure:**
 - Docker + Docker Compose
 - Nginx (production frontend)
 - PostgreSQL 15 (optional)
 - Redis 7 (optional)
+- GitHub Actions (CI/CD)
+- Render.com (deployment)
+
+---
+
+## Architecture Improvement Proposals
+
+The following are architectural suggestions for future consideration. These are **not bugs** unless explicitly stated - they are opportunities to improve robustness, scalability, and maintainability as the project evolves.
+
+### 1. BUG: Missing Router Registration
+
+**Severity: High** | File: `backend/app/main.py`
+
+The `settings_router` and `feedback_router` are imported (lines 44-46) but **never registered** with `app.include_router()`. This means the Settings and Feedback API endpoints (`/api/v1/settings/` and `/api/v1/feedback/`) are **not reachable** even though the route handlers exist in their respective modules and the frontend calls them.
+
+```python
+# Currently imported but never registered:
+from .api.app_settings import router as settings_router  # line 44
+from .api.feedback import router as feedback_router       # line 46
+
+# Fix: add these two lines after line 112:
+app.include_router(settings_router, prefix=settings.API_PREFIX)
+app.include_router(feedback_router, prefix=settings.API_PREFIX)
+```
+
+### 2. Split `ai_agents.py` (2,619 lines)
+
+The AI agent module contains 25 agent classes and the orchestrator in a single file. Consider splitting into:
+- `agents/core_agents.py` - The 13 core agents
+- `agents/specialized_agents.py` - The 12 specialized agents
+- `agents/orchestrator.py` - Already exists, could absorb `AgentOrchestrator` from `ai_agents.py`
+- `agents/base.py` - Already exists with `BaseAgent`
+
+This would improve readability, reduce merge conflicts, and make it easier to add/remove agents.
+
+### 3. Authentication Middleware Not Active
+
+The project includes JWT authentication infrastructure (`python-jose`, `passlib`, User/Organization models, `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES`) but no authentication middleware is applied to API routes. All endpoints are currently open. For production deployment, consider:
+- Adding a `get_current_user` dependency to protected routes
+- Implementing login/register endpoints
+- Adding tenant isolation based on `Organization`
+
+### 4. No Rate Limiting
+
+The API has no rate limiting, which means:
+- AI agent endpoints (which call the Anthropic API) could be abused, burning through API credits
+- File upload endpoints accept up to 5 GB files without throttling
+- Consider adding `slowapi` or a custom middleware for rate limiting, especially on `/analyze`, `/chat`, and `/ingest` endpoints
+
+### 5. File-Based Storage Scaling Concerns
+
+The default file-based storage (`data_store.py`) uses JSON files in `/app/data`. This works well for prototypes but:
+- JSON serialization/deserialization becomes slow with large datasets
+- No concurrent write protection (race conditions with multiple requests)
+- No indexing or query optimization
+- Consider making PostgreSQL the default storage when `DATABASE_URL` is configured, with file-based as explicit fallback
+
+### 6. Service Layer Coupling
+
+Several service modules have tight coupling:
+- `analysis_engine.py` (1,344 lines) directly instantiates detectors instead of using dependency injection
+- `ingestion.py` (1,128 lines) handles both parsing and schema discovery - consider separating concerns
+- `chat_service.py` (1,029 lines) builds large prompt contexts inline - consider a dedicated context builder
+
+### 7. Error Handling Consistency
+
+The codebase uses a mix of error handling strategies:
+- Some services return `None` on failure, others raise exceptions
+- No global exception handler for consistent API error responses
+- Consider a unified error handling middleware with structured error codes
+
+### 8. Test Coverage
+
+The project includes `pytest` and `pytest-asyncio` as dependencies but lacks visible test files. Consider:
+- Unit tests for each service module
+- Integration tests for API endpoints
+- ML model validation tests (model accuracy, feature compatibility)
+- End-to-end tests for the ingestion-to-analysis pipeline
+
+### 9. Frontend State Management
+
+The frontend uses TanStack React Query for server state but has no dedicated client state management. As the app grows:
+- Consider adding Zustand or Jotai for client-side state (user preferences, UI state)
+- The `NewSystemWizard.tsx` (1,386 lines) manages complex wizard state internally - this could benefit from a state machine (e.g., XState)
+
+### 10. Observability
+
+Currently logging uses `structlog` on the backend. For production:
+- Add OpenTelemetry tracing for request flows through the agent swarm
+- Add Prometheus metrics for anomaly detection latency, agent success rates, ingestion throughput
+- Consider structured error tracking (Sentry or similar)
+
+### 11. API Versioning Strategy
+
+The API uses a `/api/v1` prefix but has no versioning strategy documented. When breaking changes are needed:
+- Document the versioning policy
+- Consider response envelope with version metadata
+- Plan for v2 coexistence if needed
+
+### 12. Docker Compose Production Profile
+
+The current `docker-compose.yml` is development-oriented (with `--reload`, source code bind-mounts). Consider adding a `docker-compose.prod.yml` override with:
+- No source code mounts
+- Production Uvicorn settings (multiple workers, no reload)
+- Resource limits (memory, CPU)
+- Proper secrets management
 
 ---
 
