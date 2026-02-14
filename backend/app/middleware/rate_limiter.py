@@ -4,16 +4,19 @@ Simple in-memory rate limiting middleware for UAIE.
 Uses a very high default limit (10,000 requests per minute per IP)
 to protect against accidental abuse without affecting normal usage.
 No external dependencies required — uses a simple sliding window counter.
+
+Implemented as pure ASGI middleware (not BaseHTTPMiddleware) to avoid
+the known Starlette issue with stacked BaseHTTPMiddleware corrupting
+response bodies.
 """
 
 import logging
 import time
+import json
 from collections import defaultdict
-from typing import Dict, Tuple
+from typing import Dict
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger("uaie.middleware.rate_limiter")
 
@@ -22,7 +25,7 @@ DEFAULT_RATE_LIMIT = 10_000
 DEFAULT_WINDOW_SECONDS = 60
 
 
-class RateLimiterMiddleware(BaseHTTPMiddleware):
+class RateLimiterMiddleware:
     """
     Simple sliding-window rate limiter per client IP.
 
@@ -32,37 +35,44 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app,
+        app: ASGIApp,
         max_requests: int = DEFAULT_RATE_LIMIT,
         window_seconds: int = DEFAULT_WINDOW_SECONDS,
     ):
-        super().__init__(app)
+        self.app = app
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         # ip -> list of request timestamps
         self._requests: Dict[str, list] = defaultdict(list)
 
-    def _get_client_ip(self, request: Request) -> str:
+    def _get_client_ip(self, scope: Scope) -> str:
         """Extract client IP, respecting X-Forwarded-For behind proxies."""
-        forwarded = request.headers.get("x-forwarded-for")
+        headers = dict(scope.get("headers", []))
+        forwarded = headers.get(b"x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
-        return request.client.host if request.client else "unknown"
+            return forwarded.decode().split(",")[0].strip()
+        client = scope.get("client")
+        return client[0] if client else "unknown"
 
     def _cleanup_old_entries(self, ip: str, now: float) -> None:
         """Remove request timestamps outside the current window."""
         cutoff = now - self.window_seconds
         self._requests[ip] = [t for t in self._requests[ip] if t > cutoff]
-        # Prevent unbounded memory growth — drop IPs with no recent requests
         if not self._requests[ip]:
             del self._requests[ip]
 
-    async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for health checks
-        if request.url.path in ("/health", "/docs", "/openapi.json"):
-            return await call_next(request)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        client_ip = self._get_client_ip(request)
+        path = scope.get("path", "")
+        # Skip rate limiting for health checks
+        if path in ("/health", "/docs", "/openapi.json"):
+            await self.app(scope, receive, send)
+            return
+
+        client_ip = self._get_client_ip(scope)
         now = time.time()
 
         self._cleanup_old_entries(client_ip, now)
@@ -77,17 +87,28 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
                 self.max_requests,
                 self.window_seconds,
             )
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "error": "rate_limit_exceeded",
-                    "message": "Too many requests. Please try again later.",
-                    "retry_after_seconds": self.window_seconds,
-                },
-                headers={"Retry-After": str(self.window_seconds)},
-            )
+            body = json.dumps({
+                "error": "rate_limit_exceeded",
+                "message": "Too many requests. Please try again later.",
+                "retry_after_seconds": self.window_seconds,
+            }).encode("utf-8")
+
+            await send({
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"content-length", str(len(body)).encode()],
+                    [b"retry-after", str(self.window_seconds).encode()],
+                ],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": body,
+            })
+            return
 
         # Record this request
         self._requests[client_ip].append(now)
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
