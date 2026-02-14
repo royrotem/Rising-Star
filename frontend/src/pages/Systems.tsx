@@ -14,35 +14,18 @@ import { systemsApi } from '../services/api';
 import type { System } from '../types';
 import { getStatusColor, getHealthColor } from '../utils/colors';
 
-type DemoType = 'hvac' | 'uav' | null;
-
 export default function Systems() {
   const navigate = useNavigate();
   const [systems, setSystems] = useState<System[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [creatingDemo, setCreatingDemo] = useState<DemoType>(null);
 
   useEffect(() => {
     loadSystems();
   }, []);
 
-  const handleCreateDemo = async (type: DemoType = 'hvac') => {
-    setCreatingDemo(type);
-    const endpoint = type === 'uav'
-      ? '/api/v1/systems/demo/create-uav'
-      : '/api/v1/systems/demo/create';
-    try {
-      const response = await fetch(endpoint, { method: 'POST' });
-      if (!response.ok) throw new Error('Failed to create demo');
-      const data = await response.json();
-      navigate(`/systems/${data.system_id}`);
-    } catch (error) {
-      console.error('Failed to create demo:', error);
-      alert('Failed to create demo system. Please try again.');
-    } finally {
-      setCreatingDemo(null);
-    }
+  const handleCreateDemo = (type: 'hvac' | 'uav' = 'hvac') => {
+    navigate(`/systems/new?demo=${type}`);
   };
 
   const loadSystems = async () => {
@@ -93,37 +76,17 @@ export default function Systems() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => handleCreateDemo('hvac')}
-            disabled={creatingDemo !== null}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-all shadow-lg shadow-purple-500/20"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg shadow-purple-500/20"
           >
-            {creatingDemo === 'hvac' ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                HVAC Demo
-              </>
-            )}
+            <Sparkles className="w-4 h-4" />
+            HVAC Demo
           </button>
           <button
             onClick={() => handleCreateDemo('uav')}
-            disabled={creatingDemo !== null}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-all shadow-lg shadow-sky-500/20"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg shadow-sky-500/20"
           >
-            {creatingDemo === 'uav' ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                <Navigation className="w-4 h-4" />
-                UAV Demo
-              </>
-            )}
+            <Navigation className="w-4 h-4" />
+            UAV Demo
           </button>
           <button
             onClick={() => navigate('/systems/new')}
@@ -149,37 +112,17 @@ export default function Systems() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
               onClick={() => handleCreateDemo('hvac')}
-              disabled={creatingDemo !== null}
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 text-white rounded-lg font-medium transition-all shadow-lg shadow-purple-500/25"
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all shadow-lg shadow-purple-500/25"
             >
-              {creatingDemo === 'hvac' ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Creating HVAC Demo...
-                </>
-              ) : (
-                <>
-                  <Play className="w-5 h-5" />
-                  HVAC Demo
-                </>
-              )}
+              <Play className="w-5 h-5" />
+              HVAC Demo
             </button>
             <button
               onClick={() => handleCreateDemo('uav')}
-              disabled={creatingDemo !== null}
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 disabled:opacity-50 text-white rounded-lg font-medium transition-all shadow-lg shadow-sky-500/25"
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 text-white rounded-lg font-medium transition-all shadow-lg shadow-sky-500/25"
             >
-              {creatingDemo === 'uav' ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Creating UAV Demo...
-                </>
-              ) : (
-                <>
-                  <Navigation className="w-5 h-5" />
-                  UAV Demo (TLM)
-                </>
-              )}
+              <Navigation className="w-5 h-5" />
+              UAV Demo (TLM)
             </button>
             <span className="text-stone-500">or</span>
             <button

@@ -14,6 +14,13 @@ export default function Settings() {
   const [apiKey, setApiKey] = useState('');
   const [maskedKey, setMaskedKey] = useState('');
   const [keyEdited, setKeyEdited] = useState(false);
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [maskedOpenaiKey, setMaskedOpenaiKey] = useState('');
+  const [openaiKeyEdited, setOpenaiKeyEdited] = useState(false);
+  const [geminiKey, setGeminiKey] = useState('');
+  const [maskedGeminiKey, setMaskedGeminiKey] = useState('');
+  const [geminiKeyEdited, setGeminiKeyEdited] = useState(false);
+  const [agenticProvider, setAgenticProvider] = useState('auto');
   const [enableAiAgents, setEnableAiAgents] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -36,16 +43,25 @@ export default function Settings() {
         const data = await response.json();
         const ai = data.ai || {};
         setEnableAiAgents(ai.enable_ai_agents ?? true);
-        // Backend returns masked key like "sk-ant-a..." or "***configured***"
+        setAgenticProvider(ai.agentic_llm_provider || 'auto');
+
+        // Anthropic key
         const key = ai.anthropic_api_key || '';
-        if (key && key !== '***configured***') {
-          setMaskedKey(key);
-        } else if (key === '***configured***') {
-          setMaskedKey(key);
-        }
-        // Don't set apiKey — keep it empty so user can type fresh
+        if (key) setMaskedKey(key);
         setApiKey('');
         setKeyEdited(false);
+
+        // OpenAI key
+        const oKey = ai.openai_api_key || '';
+        if (oKey) setMaskedOpenaiKey(oKey);
+        setOpenaiKey('');
+        setOpenaiKeyEdited(false);
+
+        // Gemini key
+        const gKey = ai.gemini_api_key || '';
+        if (gKey) setMaskedGeminiKey(gKey);
+        setGeminiKey('');
+        setGeminiKeyEdited(false);
       }
     } catch {
       // Settings not available
@@ -73,14 +89,17 @@ export default function Settings() {
     try {
       const aiPayload: Record<string, unknown> = {
         enable_ai_agents: enableAiAgents,
+        agentic_llm_provider: agenticProvider,
       };
-      // Only send the API key if the user actually typed a new one
-      if (keyEdited && apiKey.trim()) {
-        aiPayload.anthropic_api_key = apiKey.trim();
-      } else {
-        // Send the masked key back — backend will recognize it and keep existing
-        aiPayload.anthropic_api_key = maskedKey || null;
-      }
+      // Anthropic key
+      aiPayload.anthropic_api_key = keyEdited && apiKey.trim()
+        ? apiKey.trim() : (maskedKey || null);
+      // OpenAI key
+      aiPayload.openai_api_key = openaiKeyEdited && openaiKey.trim()
+        ? openaiKey.trim() : (maskedOpenaiKey || null);
+      // Gemini key
+      aiPayload.gemini_api_key = geminiKeyEdited && geminiKey.trim()
+        ? geminiKey.trim() : (maskedGeminiKey || null);
 
       await fetch('/api/v1/settings/', {
         method: 'PUT',
@@ -89,7 +108,6 @@ export default function Settings() {
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-      // Reload to get updated masked key
       await loadSettings();
     } catch {
       // Save failed
@@ -184,12 +202,72 @@ export default function Settings() {
             )}
           </div>
 
+          {/* OpenAI API Key */}
+          <div>
+            <label className="block text-xs font-medium text-stone-300 mb-2">
+              OpenAI API Key
+            </label>
+            <input
+              type="password"
+              value={openaiKeyEdited ? openaiKey : ''}
+              onChange={(e) => { setOpenaiKey(e.target.value); setOpenaiKeyEdited(true); }}
+              placeholder={maskedOpenaiKey || 'sk-...'}
+              className="w-full px-4 py-2.5 bg-stone-600 border border-stone-600/50 rounded-lg text-sm text-white placeholder-stone-400 focus:outline-none focus:border-stone-400 transition-colors"
+            />
+            {maskedOpenaiKey && !openaiKeyEdited && (
+              <div className="flex items-center gap-1.5 mt-2">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                <p className="text-xs text-emerald-400">API key configured</p>
+              </div>
+            )}
+          </div>
+
+          {/* Gemini API Key */}
+          <div>
+            <label className="block text-xs font-medium text-stone-300 mb-2">
+              Google Gemini API Key
+            </label>
+            <input
+              type="password"
+              value={geminiKeyEdited ? geminiKey : ''}
+              onChange={(e) => { setGeminiKey(e.target.value); setGeminiKeyEdited(true); }}
+              placeholder={maskedGeminiKey || 'AIza...'}
+              className="w-full px-4 py-2.5 bg-stone-600 border border-stone-600/50 rounded-lg text-sm text-white placeholder-stone-400 focus:outline-none focus:border-stone-400 transition-colors"
+            />
+            {maskedGeminiKey && !geminiKeyEdited && (
+              <div className="flex items-center gap-1.5 mt-2">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                <p className="text-xs text-emerald-400">API key configured</p>
+              </div>
+            )}
+          </div>
+
+          {/* Agentic LLM Provider */}
+          <div>
+            <label className="block text-xs font-medium text-stone-300 mb-2">
+              Agentic Detector Provider
+            </label>
+            <select
+              value={agenticProvider}
+              onChange={(e) => setAgenticProvider(e.target.value)}
+              className="w-full px-4 py-2.5 bg-stone-600 border border-stone-600/50 rounded-lg text-sm text-white focus:outline-none focus:border-stone-400 transition-colors"
+            >
+              <option value="auto">Auto-detect (use first available key)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="openai">OpenAI (GPT-4o)</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+            <p className="text-xs text-stone-400 mt-1.5">
+              Controls which LLM powers the agentic tool-use detectors
+            </p>
+          </div>
+
           {/* AI Agents Toggle */}
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-white">AI Agents</p>
               <p className="text-xs text-stone-300 mt-0.5">
-                Use LLM-powered analysis (requires API key)
+                Use LLM-powered analysis (requires at least one API key)
               </p>
             </div>
             <button

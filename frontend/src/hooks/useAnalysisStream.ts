@@ -29,6 +29,13 @@ export interface AgentEvent {
   perspective?: string;
 }
 
+export interface ModelEvent {
+  model: string;
+  status: string;
+  findings: number;
+  elapsed_seconds: number;
+}
+
 export interface StreamState {
   /** Whether the stream is currently active. */
   active: boolean;
@@ -38,6 +45,10 @@ export interface StreamState {
   message: string;
   /** Completed detection layers (up to 6). */
   layers: LayerEvent[];
+  /** Completed hard-coded model results. */
+  hardcodedModels: ModelEvent[];
+  /** Completed ML model results. */
+  models: ModelEvent[];
   /** Completed AI agent results. */
   agents: AgentEvent[];
   /** Final analysis result (null until complete). */
@@ -51,6 +62,8 @@ const INITIAL_STATE: StreamState = {
   progress: 0,
   message: '',
   layers: [],
+  hardcodedModels: [],
+  models: [],
   agents: [],
   result: null,
   error: null,
@@ -94,6 +107,22 @@ export function useAnalysisStream() {
       setState((prev) => ({
         ...prev,
         layers: [...prev.layers, data],
+      }));
+    });
+
+    es.addEventListener('hardcoded_model_complete', (e: MessageEvent) => {
+      const data: ModelEvent = JSON.parse(e.data);
+      setState((prev) => ({
+        ...prev,
+        hardcodedModels: [...prev.hardcodedModels, data],
+      }));
+    });
+
+    es.addEventListener('model_complete', (e: MessageEvent) => {
+      const data: ModelEvent = JSON.parse(e.data);
+      setState((prev) => ({
+        ...prev,
+        models: [...prev.models, data],
       }));
     });
 

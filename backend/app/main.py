@@ -101,10 +101,11 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(systems_router, prefix=settings.API_PREFIX)
-app.include_router(settings_router, prefix=settings.API_PREFIX)
-app.include_router(feedback_router, prefix=settings.API_PREFIX)
+# NOTE: streaming_router MUST come before systems_router because both use
+# prefix="/systems" and systems_router has a /{system_id} catch-all that
+# would swallow streaming's /available-agents route.
 app.include_router(streaming_router, prefix=settings.API_PREFIX)
+app.include_router(systems_router, prefix=settings.API_PREFIX)
 app.include_router(chat_router, prefix=settings.API_PREFIX)
 app.include_router(reports_router, prefix=settings.API_PREFIX)
 app.include_router(baselines_router, prefix=settings.API_PREFIX)

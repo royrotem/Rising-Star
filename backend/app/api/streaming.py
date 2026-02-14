@@ -23,6 +23,8 @@ from ..services.ai_agents import orchestrator as ai_orchestrator, ALL_AGENT_NAME
 # External agents available but not used in production yet:
 # from ..services.agentic_analyzers import agentic_orchestrator
 from ..services.recommendation import build_data_profile
+from ..services.ml_models import ml_orchestrator
+from ..services.hardcoded_models import hardcoded_orchestrator
 from ..utils import (
     sanitize_for_json,
     anomaly_to_dict,
@@ -154,10 +156,103 @@ async def analyze_system_stream(
             yield _sse_event("stage", {
                 "stage": "rule_engine_complete",
                 "message": f"Rule engine found {len(anomalies)} anomalies",
-                "progress": 50,
+                "progress": 35,
             })
 
-            # ── Stage 3: AI multi-agent analysis (25 Claude agents) ──
+            # ── Stage 2.25: Hard-coded anomaly detection models (9 algorithms) ──
+            hc_result: Dict[str, Any] = {
+                "anomalies": [], "model_statuses": [], "total_findings": 0, "models_available": {},
+            }
+            try:
+                yield _sse_event("stage", {
+                    "stage": "hardcoded_models",
+                    "message": "Running 9 hard-coded anomaly detection algorithms...",
+                    "progress": 36,
+                })
+
+                t_hc_start = time.time()
+                hc_result = await hardcoded_orchestrator.run_all(records)
+                t_hc_elapsed = round(time.time() - t_hc_start, 2)
+
+                logger.info("[Stage 2.25] Hard-coded models finished in %.2fs: %d findings",
+                            t_hc_elapsed, hc_result.get("total_findings", 0))
+
+                for ms in hc_result.get("model_statuses", []):
+                    ms["elapsed_seconds"] = t_hc_elapsed
+                    yield _sse_event("hardcoded_model_complete", {
+                        "model": ms.get("model", "Unknown"),
+                        "status": ms.get("status", "unknown"),
+                        "findings": ms.get("findings", 0),
+                        "elapsed_seconds": t_hc_elapsed,
+                    })
+                    await asyncio.sleep(0.05)
+
+                anomalies.extend(hc_result.get("anomalies", []))
+
+                yield _sse_event("stage", {
+                    "stage": "hardcoded_models_complete",
+                    "message": f"Hard-coded models found {hc_result.get('total_findings', 0)} anomalies",
+                    "progress": 37,
+                })
+
+            except Exception as e:
+                logger.error("[Stage 2.25] Hard-coded models EXCEPTION: %s: %s", type(e).__name__, e)
+                logger.error(traceback.format_exc())
+                yield _sse_event("stage", {
+                    "stage": "hardcoded_models_error",
+                    "message": f"Hard-coded models failed (continuing): {e}",
+                    "progress": 37,
+                })
+
+            # ── Stage 2.5: ML model inference ──
+            ml_result: Dict[str, Any] = {
+                "anomalies": [], "model_statuses": [], "total_findings": 0, "models_available": {},
+            }
+            try:
+                yield _sse_event("stage", {
+                    "stage": "ml_models",
+                    "message": "Running 7 ML anomaly detection models...",
+                    "progress": 37,
+                })
+
+                t_ml_start = time.time()
+                ml_result = await ml_orchestrator.run_all(records)
+                t_ml_elapsed = round(time.time() - t_ml_start, 2)
+
+                logger.info("[Stage 2.5] ML models finished in %.2fs: %d findings, available=%s",
+                            t_ml_elapsed, ml_result.get("total_findings", 0),
+                            ml_result.get("models_available", {}))
+
+                # Emit per-model statuses
+                for ms in ml_result.get("model_statuses", []):
+                    ms["elapsed_seconds"] = t_ml_elapsed
+                    yield _sse_event("model_complete", {
+                        "model": ms.get("model", "Unknown"),
+                        "status": ms.get("status", "unknown"),
+                        "findings": ms.get("findings", 0),
+                        "elapsed_seconds": t_ml_elapsed,
+                    })
+                    await asyncio.sleep(0.05)
+
+                # Extend anomalies list with ML findings
+                anomalies.extend(ml_result.get("anomalies", []))
+
+                yield _sse_event("stage", {
+                    "stage": "ml_models_complete",
+                    "message": f"ML models found {ml_result.get('total_findings', 0)} anomalies",
+                    "progress": 50,
+                })
+
+            except Exception as e:
+                logger.error("[Stage 2.5] ML models EXCEPTION: %s: %s", type(e).__name__, e)
+                logger.error(traceback.format_exc())
+                yield _sse_event("stage", {
+                    "stage": "ml_models_error",
+                    "message": f"ML models failed (continuing): {e}",
+                    "progress": 50,
+                })
+
+            # ── Stage 3: AI multi-agent analysis (30 agents: 25 prompt + 5 agentic) ──
             ai_cfg = get_ai_settings()
             ai_result = None
             agent_statuses: List[Dict] = []
@@ -191,16 +286,89 @@ async def analyze_system_stream(
                     if meta.get("description"):
                         metadata_context = meta["description"]
 
-                    t_ai_start = time.time()
-                    ai_result = await ai_orchestrator.run_analysis(
-                        system_id=system_id,
-                        system_type=system_type,
-                        system_name=system_name,
-                        data_profile=data_profile,
-                        metadata_context=metadata_context,
-                        enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
-                        selected_agents=selected_agents,
+                    # Queue for receiving batch-complete events from the orchestrator
+                    batch_event_queue: asyncio.Queue = asyncio.Queue()
+
+                    async def on_batch_complete(batch_num, total_batches, batch_agents, batch_results):
+                        """Called by the orchestrator after each agent batch finishes."""
+                        await batch_event_queue.put((batch_num, total_batches, batch_agents, batch_results))
+
+                    # Launch orchestrator as a background task so we can yield
+                    # progress events as batches complete
+                    ai_task = asyncio.create_task(
+                        ai_orchestrator.run_analysis(
+                            system_id=system_id,
+                            system_type=system_type,
+                            system_name=system_name,
+                            data_profile=data_profile,
+                            metadata_context=metadata_context,
+                            enable_web_grounding=ai_cfg.get("enable_web_grounding", True),
+                            selected_agents=selected_agents,
+                            on_batch_complete=on_batch_complete,
+                            raw_records=records,
+                        )
                     )
+                    t_ai_start = time.time()
+
+                    # Drain batch-complete events while the orchestrator runs
+                    while not ai_task.done():
+                        try:
+                            batch_num, total_batches, batch_agents, batch_results = await asyncio.wait_for(
+                                batch_event_queue.get(), timeout=0.5,
+                            )
+                            # Emit per-agent statuses for this batch
+                            for agent_obj, res in zip(batch_agents, batch_results):
+                                a_name = agent_obj.name
+                                if isinstance(res, Exception):
+                                    yield _sse_event("agent_complete", {
+                                        "agent": a_name,
+                                        "status": "error",
+                                        "findings": 0,
+                                        "perspective": "",
+                                    })
+                                else:
+                                    yield _sse_event("agent_complete", {
+                                        "agent": a_name,
+                                        "status": "success",
+                                        "findings": len(res) if res else 0,
+                                        "perspective": getattr(agent_obj, "perspective", ""),
+                                    })
+                                await asyncio.sleep(0.02)
+
+                            # Update progress proportionally: 55% → 85% across batches
+                            batch_progress = 55 + int(30 * batch_num / total_batches)
+                            yield _sse_event("stage", {
+                                "stage": "ai_agents_batch",
+                                "message": f"Agent batch {batch_num}/{total_batches} complete",
+                                "progress": batch_progress,
+                            })
+                        except asyncio.TimeoutError:
+                            continue
+
+                    # Drain any remaining events in the queue
+                    while not batch_event_queue.empty():
+                        batch_num, total_batches, batch_agents, batch_results = batch_event_queue.get_nowait()
+                        for agent_obj, res in zip(batch_agents, batch_results):
+                            a_name = agent_obj.name
+                            if isinstance(res, Exception):
+                                yield _sse_event("agent_complete", {
+                                    "agent": a_name, "status": "error", "findings": 0, "perspective": "",
+                                })
+                            else:
+                                yield _sse_event("agent_complete", {
+                                    "agent": a_name, "status": "success",
+                                    "findings": len(res) if res else 0,
+                                    "perspective": getattr(agent_obj, "perspective", ""),
+                                })
+                            await asyncio.sleep(0.02)
+                        batch_progress = 55 + int(30 * batch_num / total_batches)
+                        yield _sse_event("stage", {
+                            "stage": "ai_agents_batch",
+                            "message": f"Agent batch {batch_num}/{total_batches} complete",
+                            "progress": batch_progress,
+                        })
+
+                    ai_result = ai_task.result()
                     t_ai_elapsed = round(time.time() - t_ai_start, 2)
 
                     logger.info("[Stage 3] AI orchestrator finished in %.2fs", t_ai_elapsed)
@@ -211,24 +379,7 @@ async def analyze_system_stream(
                                     ai_result.get("total_findings_raw", 0),
                                     ai_result.get("total_anomalies_unified", 0))
 
-                    # Emit per-agent statuses
-                    ai_agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
-                    for idx, st in enumerate(ai_agent_statuses):
-                        agent_name = st.get("agent", f"Agent {idx+1}")
-                        agent_status = st.get("status", "unknown")
-                        agent_findings = st.get("findings", 0)
-                        logger.info("[Stage 3]   agent '%s': status=%s, findings=%d%s",
-                                    agent_name, agent_status, agent_findings,
-                                    f", error={st.get('error')}" if st.get("error") else "")
-                        yield _sse_event("agent_complete", {
-                            "agent": agent_name,
-                            "status": agent_status,
-                            "findings": agent_findings,
-                            "perspective": st.get("perspective", ""),
-                        })
-                        await asyncio.sleep(0.05)
-
-                    agent_statuses = ai_agent_statuses
+                    agent_statuses = ai_result.get("agent_statuses", []) if ai_result else []
 
                     merge_ai_anomalies(anomalies, ai_result)
 
@@ -285,6 +436,16 @@ async def analyze_system_stream(
                 "insights": result.insights,
                 "insights_summary": result.summary,
                 "recommendations": result.recommendations,
+                "hardcoded_analysis": {
+                    "models_available": hc_result.get("models_available", {}),
+                    "model_statuses": hc_result.get("model_statuses", []),
+                    "total_findings": hc_result.get("total_findings", 0),
+                },
+                "ml_analysis": {
+                    "models_available": ml_result.get("models_available", {}),
+                    "model_statuses": ml_result.get("model_statuses", []),
+                    "total_findings": ml_result.get("total_findings", 0),
+                },
                 "ai_analysis": {
                     "ai_powered": ai_result.get("ai_powered", False) if ai_result else False,
                     "agents_used": ai_result.get("agents_used", []) if ai_result else [],
