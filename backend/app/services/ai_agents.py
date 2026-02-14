@@ -2346,12 +2346,25 @@ class AgentOrchestrator:
 
         # Set up toolkit for agentic detectors if raw data is available
         if raw_records:
-            from .agentic_detectors import AgenticDetector, DataToolkit
+            from .agentic_detectors import AgenticDetector, DataToolkit, get_available_providers
             import pandas as _pd
             toolkit = DataToolkit(_pd.DataFrame(raw_records))
-            for agent in self.agents:
-                if isinstance(agent, AgenticDetector):
-                    agent.set_toolkit(toolkit)
+            agentic_agents = [a for a in self.agents if isinstance(a, AgenticDetector)]
+
+            # Distribute agents across all available providers (round-robin)
+            available = get_available_providers()
+            if len(available) > 1:
+                for idx, agent in enumerate(agentic_agents):
+                    if agent.llm_provider is None:  # only override auto
+                        agent.llm_provider = available[idx % len(available)]
+                logger.info(
+                    "[Orchestrator] Distributed %d agentic detectors across %d providers: %s",
+                    len(agentic_agents), len(available),
+                    {a.name: a.llm_provider for a in agentic_agents},
+                )
+
+            for agent in agentic_agents:
+                agent.set_toolkit(toolkit)
 
         # Filter agents if selection provided
         if selected_agents:

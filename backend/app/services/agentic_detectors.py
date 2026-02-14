@@ -668,6 +668,22 @@ def _detect_best_provider() -> str:
     return LLM_PROVIDER_ANTHROPIC  # default
 
 
+def get_available_providers() -> List[str]:
+    """Return a list of all providers that have a valid API key configured.
+
+    Used by the orchestrator to distribute agents across multiple providers
+    when the user has configured more than one API key.
+    """
+    available: List[str] = []
+    if _get_api_key():
+        available.append(LLM_PROVIDER_ANTHROPIC)
+    if HAS_OPENAI and _get_openai_api_key():
+        available.append(LLM_PROVIDER_OPENAI)
+    if HAS_GEMINI and _get_gemini_api_key():
+        available.append(LLM_PROVIDER_GEMINI)
+    return available
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Agentic Base Class — multi-turn tool-use loop (multi-provider)
 # ═══════════════════════════════════════════════════════════════════
