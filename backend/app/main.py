@@ -40,6 +40,9 @@ _root_logger = logging.getLogger("uaie")
 _root_logger.info("=== UAIE logging initialised — log file: %s ===", _LOG_FILE)
 
 from .core.config import settings
+from .middleware.error_handler import ErrorHandlerMiddleware
+from .middleware.request_logger import RequestLoggerMiddleware
+from .middleware.rate_limiter import RateLimiterMiddleware
 from .api.systems import router as systems_router
 from .api.app_settings import router as settings_router
 from .api.feedback import router as feedback_router
@@ -100,6 +103,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Error handling middleware (catches unhandled exceptions -> clean JSON errors)
+app.add_middleware(ErrorHandlerMiddleware)
+
+# Request logging middleware (structured log: method, path, status, duration)
+app.add_middleware(RequestLoggerMiddleware)
+
+# Rate limiting middleware (10,000 req/min per IP — safety net, not restriction)
+app.add_middleware(RateLimiterMiddleware, max_requests=10_000, window_seconds=60)
+
 # Include routers
 # NOTE: streaming_router MUST come before systems_router because both use
 # prefix="/systems" and systems_router has a /{system_id} catch-all that
@@ -110,6 +122,8 @@ app.include_router(chat_router, prefix=settings.API_PREFIX)
 app.include_router(reports_router, prefix=settings.API_PREFIX)
 app.include_router(baselines_router, prefix=settings.API_PREFIX)
 app.include_router(schedules_router, prefix=settings.API_PREFIX)
+app.include_router(feedback_router, prefix=settings.API_PREFIX)
+app.include_router(settings_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health")

@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import shutil
+import tempfile
 import threading
 import uuid
 from datetime import datetime
@@ -62,10 +63,32 @@ class DataStore:
         # Thread lock for concurrent access
         self._lock = threading.RLock()
 
-        # In-memory cache
+        # In-memory cache — atomic write prevents corruption on crash
         self._systems_cache: Dict[str, Dict] = {}
         self._temp_analysis_cache: Dict[str, Dict] = {}  # Cache for temp analysis data
         self._load_systems()
+
+    @staticmethod
+    def _atomic_write(file_path: Path, data: Any, indent: int = None) -> None:
+        """Write JSON data atomically: write to temp file, then rename.
+
+        This prevents data corruption if the process crashes mid-write.
+        """
+        dir_path = file_path.parent
+        fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=indent, default=str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(file_path))
+        except BaseException:
+            # Clean up temp file on any failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def _load_systems(self):
         """Load all systems from disk into memory cache."""
@@ -87,10 +110,9 @@ class DataStore:
             system_data["created_at"] = system_data.get("created_at", datetime.utcnow().isoformat())
             system_data["updated_at"] = datetime.utcnow().isoformat()
 
-            # Save to file
+            # Save to file (atomic write)
             system_file = self.systems_dir / f"{system_id}.json"
-            with open(system_file, "w") as f:
-                json.dump(system_data, f, indent=2, default=str)
+            self._atomic_write(system_file, system_data, indent=2)
 
             # Update cache
             self._systems_cache[system_id] = system_data
@@ -124,10 +146,9 @@ class DataStore:
             system.update(updates)
             system["updated_at"] = datetime.utcnow().isoformat()
 
-            # Save to file
+            # Save to file (atomic write)
             system_file = self.systems_dir / f"{system_id}.json"
-            with open(system_file, "w") as f:
-                json.dump(system, f, indent=2, default=str)
+            self._atomic_write(system_file, system, indent=2)
 
             return system
 
@@ -168,15 +189,13 @@ class DataStore:
             system_data_dir = self.ingested_dir / system_id
             system_data_dir.mkdir(exist_ok=True)
 
-            # Store records
+            # Store records (atomic write)
             records_file = system_data_dir / f"{source_id}_records.json"
-            with open(records_file, "w") as f:
-                json.dump(records, f, default=str)
+            self._atomic_write(records_file, records)
 
-            # Store schema
+            # Store schema (atomic write)
             schema_file = self.schemas_dir / f"{system_id}_{source_id}_schema.json"
-            with open(schema_file, "w") as f:
-                json.dump(discovered_schema, f, indent=2, default=str)
+            self._atomic_write(schema_file, discovered_schema, indent=2)
 
             # Store metadata
             source_metadata = {
@@ -189,9 +208,9 @@ class DataStore:
                 **(metadata or {})
             }
 
+            # Atomic write for metadata
             metadata_file = system_data_dir / f"{source_id}_metadata.json"
-            with open(metadata_file, "w") as f:
-                json.dump(source_metadata, f, indent=2, default=str)
+            self._atomic_write(metadata_file, source_metadata, indent=2)
 
             # Update system with data source info
             if system_id in self._systems_cache:
@@ -342,10 +361,9 @@ class DataStore:
             # Store in memory cache
             self._temp_analysis_cache[analysis_id] = analysis_data
 
-            # Also persist to disk
+            # Also persist to disk (atomic write)
             analysis_file = self.temp_dir / f"{analysis_id}.json"
-            with open(analysis_file, "w") as f:
-                json.dump(analysis_data, f, default=str)
+            self._atomic_write(analysis_file, analysis_data)
 
     def get_temp_analysis(self, analysis_id: str) -> Optional[Dict[str, Any]]:
         """Get temporary analysis data."""
