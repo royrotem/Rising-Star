@@ -269,8 +269,12 @@ export default function NewSystemWizard() {
 
       // Create a virtual file entry so the wizard shows it
       const demoFileName = result.demo_source_file || (demoType === 'uav' ? 'Fusion_Data.csv' : 'hvac_telemetry.csv');
-      const virtualFile = new File([], demoFileName, { type: 'text/csv' });
-      Object.defineProperty(virtualFile, 'size', { value: result.total_records * 120 }); // approximate size
+      const approxSize = (result.total_records || 1000) * 120;
+      const virtualFile = new globalThis.File(
+        [new ArrayBuffer(0)], demoFileName, { type: 'text/csv' }
+      );
+      // size is read-only; wrap in try-catch in case the engine disallows override
+      try { Object.defineProperty(virtualFile, 'size', { value: approxSize }); } catch { /* ok */ }
       setUploadedFiles([{
         file: virtualFile,
         id: `demo-${demoType}-${Date.now()}`,
