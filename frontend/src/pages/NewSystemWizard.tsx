@@ -23,7 +23,7 @@ import {
   X,
   FileJson,
   FileSpreadsheet,
-  File,
+  File as FileIcon,
   FolderArchive,
   Lightbulb,
   Sun,
@@ -190,7 +190,7 @@ function getFileIcon(filename: string) {
   if (ext === 'json' || ext === 'jsonl') return FileJson;
   if (ext === 'csv' || ext === 'xlsx' || ext === 'parquet') return FileSpreadsheet;
   if (ext === 'zip') return FolderArchive;
-  return File;
+  return FileIcon;
 }
 
 export default function NewSystemWizard() {
