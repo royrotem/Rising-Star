@@ -45,7 +45,9 @@ export function FeedbackButtons({
   const [existingFeedback, setExistingFeedback] = useState<AnomalyFeedback[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     feedbackApi.list(systemId, anomalyId).then((entries) => {
+      if (cancelled) return;
       setExistingFeedback(entries);
       if (entries.length > 0) {
         setSubmitted(entries[0].feedback_type);
@@ -53,6 +55,7 @@ export function FeedbackButtons({
     }).catch(() => {
       // Silently ignore — feedback is non-critical
     });
+    return () => { cancelled = true; };
   }, [systemId, anomalyId]);
 
   const handleSubmit = async (type: FeedbackType) => {
@@ -182,9 +185,14 @@ export function FeedbackSummaryBanner({ systemId }: FeedbackSummaryBannerProps) 
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    feedbackApi.summary(systemId).then(setSummary).catch(() => {
+    let cancelled = false;
+    feedbackApi.summary(systemId).then((data) => {
+      if (cancelled) return;
+      setSummary(data);
+    }).catch(() => {
       // Non-critical — silently ignore
     });
+    return () => { cancelled = true; };
   }, [systemId]);
 
   if (!summary || summary.total_feedback === 0) return null;

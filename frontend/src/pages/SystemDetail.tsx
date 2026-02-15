@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -128,8 +128,12 @@ export default function SystemDetail() {
   const [availableAgents, setAvailableAgents] = useState<Array<{ name: string; perspective: string }>>([]);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
 
+  // Guard: only process a given stream result once.
+  const processedResultRef = useRef<unknown>(null);
+
   useEffect(() => {
-    if (stream.result && !stream.active) {
+    if (stream.result && !stream.active && stream.result !== processedResultRef.current) {
+      processedResultRef.current = stream.result;
       const r = stream.result as AnalysisResult & Record<string, unknown>;
       setAnalysis({
         health_score: r.health_score,
@@ -141,8 +145,8 @@ export default function SystemDetail() {
         insights: r.insights as string[] | undefined,
         ai_analysis: r.ai_analysis as AnalysisData['ai_analysis'],
       });
-      if (system && r.health_score) {
-        setSystem({ ...system, health_score: r.health_score as number });
+      if (r.health_score) {
+        setSystem((prev) => prev ? { ...prev, health_score: r.health_score as number } : prev);
       }
       setAnalyzing(false);
     }
@@ -156,64 +160,73 @@ export default function SystemDetail() {
   }, [stream.error, stream.active]);
 
   useEffect(() => {
-    loadSystem();
+    let cancelled = false;
+
+    const load = async () => {
+      if (!systemId) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await systemsApi.get(systemId);
+        if (cancelled) return;
+        setSystem(data as System);
+
+        try {
+          const statsResponse = await fetch(`/api/v1/systems/${systemId}/statistics`);
+          if (!cancelled && statsResponse.ok) {
+            const stats = await statsResponse.json();
+            setStatistics(stats);
+          }
+        } catch {
+          // Statistics not available yet
+        }
+
+        const saved = await systemsApi.getAnalysis(systemId);
+        if (cancelled) return;
+        if (saved) {
+          setAnalysis({
+            health_score: saved.health_score ?? (data as System).health_score ?? null,
+            data_analyzed: saved.data_analyzed,
+            anomalies: (saved.anomalies as AnalysisData['anomalies']) || [],
+            engineering_margins: (saved.engineering_margins as AnalysisData['engineering_margins']) || [],
+            blind_spots: (saved.blind_spots as AnalysisData['blind_spots']) || [],
+            insights_summary: saved.insights_summary,
+            insights: saved.insights,
+            ai_analysis: saved.ai_analysis,
+          });
+        } else {
+          setAnalysis({
+            health_score: (data as System).health_score || null,
+            anomalies: [],
+            engineering_margins: [],
+            blind_spots: [],
+          });
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to load system:', error);
+        setError('Failed to load system. Make sure the backend is running.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+
     // Load available agents
     fetch('/api/v1/systems/available-agents')
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
+        if (cancelled) return;
         if (data?.agents) {
           setAvailableAgents(data.agents);
           setSelectedAgents(new Set(data.agents.map((a: { name: string }) => a.name)));
         }
       })
       .catch(() => { /* agents list not critical */ });
+
+    return () => { cancelled = true; };
   }, [systemId]);
-
-  const loadSystem = async () => {
-    if (!systemId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await systemsApi.get(systemId);
-      setSystem(data as System);
-
-      try {
-        const statsResponse = await fetch(`/api/v1/systems/${systemId}/statistics`);
-        if (statsResponse.ok) {
-          const stats = await statsResponse.json();
-          setStatistics(stats);
-        }
-      } catch {
-        // Statistics not available yet
-      }
-
-      const saved = await systemsApi.getAnalysis(systemId);
-      if (saved) {
-        setAnalysis({
-          health_score: saved.health_score ?? (data as System).health_score ?? null,
-          data_analyzed: saved.data_analyzed,
-          anomalies: (saved.anomalies as AnalysisData['anomalies']) || [],
-          engineering_margins: (saved.engineering_margins as AnalysisData['engineering_margins']) || [],
-          blind_spots: (saved.blind_spots as AnalysisData['blind_spots']) || [],
-          insights_summary: saved.insights_summary,
-          insights: saved.insights,
-          ai_analysis: saved.ai_analysis,
-        });
-      } else {
-        setAnalysis({
-          health_score: (data as System).health_score || null,
-          anomalies: [],
-          engineering_margins: [],
-          blind_spots: [],
-        });
-      }
-    } catch (error) {
-      console.error('Failed to load system:', error);
-      setError('Failed to load system. Make sure the backend is running.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleAnalyze = () => {
     if (!systemId) return;
